@@ -62,6 +62,8 @@ model User {
   name               String?
   googleAccessToken  String?
   googleRefreshToken String?
+  tihldeUserId       String?
+  tihldeToken        String?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   participants       Participant[]

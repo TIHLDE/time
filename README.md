@@ -1,6 +1,6 @@
 ## Time Grid
 
-Full-stack group scheduling app (Timeful/When2meet style) built with:
+Full-stack group scheduling app built with:
 
 - Next.js 14 App Router + TypeScript + Tailwind CSS
 - NextAuth.js v5 (Google OAuth)
@@ -21,13 +21,19 @@ pnpm install
 cp .env.example .env.local
 ```
 
-3) Run Prisma migrations:
+3) Start local Postgres:
+
+```bash
+docker compose up -d db
+```
+
+4) Run Prisma migrations:
 
 ```bash
 pnpm prisma migrate dev --name init
 ```
 
-4) Start dev server:
+5) Start dev server:
 
 ```bash
 pnpm dev
@@ -50,6 +56,11 @@ For production, also add:
 - Add all variables from `.env.example` to Vercel Project Settings
 - Use Vercel Postgres `DATABASE_URL`
 - Run `pnpm prisma migrate deploy` during deployment (or in CI)
+
+## TIHLDE Login Notes
+
+- TIHLDE login writes/reads user and session data through Prisma.
+- If `DATABASE_URL` points to a placeholder or unreachable host, login fails and can surface as auth errors.
 
 ## Learn More
 
