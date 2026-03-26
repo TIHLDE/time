@@ -1,13 +1,29 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
-import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 
 const tihldeApiBaseUrl = process.env.TIHLDE_API_URL?.replace(/\/+$/, "");
 
+declare module "next-auth" {
+  interface Session {
+    user: {
+      id: string;
+      name?: string | null;
+      email?: string | null;
+      image?: string | null;
+    };
+  }
+}
+
+// @ts-expect-error JWT module augmentation
+declare module "next-auth/jwt" {
+  interface JWT {
+    id?: string;
+  }
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(prisma),
   providers: [
     Google({
       authorization: {
@@ -100,42 +116,43 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           id: dbUser.id,
           email: dbUser.email,
           name: dbUser.name,
-          tihldeToken: loginData.token,
         };
       },
     }),
   ],
   session: {
-    strategy: "database",
+    strategy: "jwt",
   },
   callbacks: {
-    async session({ session, user }) {
-      if (session.user) {
-        session.user.id = user.id;
+    async jwt({ token, user, account, profile }) {
+      if (user) {
+        token.id = user.id;
       }
-      return session;
-    },
-    async signIn({ user, account }) {
-      if (account?.provider === "google" && user.email) {
-        await prisma.user.update({
-          where: { email: user.email },
-          data: {
+      if (account?.provider === "google" && profile?.email) {
+        const email = profile.email as string;
+        const dbUser = await prisma.user.upsert({
+          where: { email },
+          update: {
+            name: (profile.name as string) ?? undefined,
+            googleAccessToken: account.access_token ?? undefined,
+            googleRefreshToken: account.refresh_token ?? undefined,
+          },
+          create: {
+            email,
+            name: (profile.name as string) ?? email,
             googleAccessToken: account.access_token ?? undefined,
             googleRefreshToken: account.refresh_token ?? undefined,
           },
         });
+        token.id = dbUser.id;
       }
-
-      if (account?.provider === "credentials") {
-        const tihldeToken = (user as { tihldeToken?: string }).tihldeToken;
-        if (user.id && tihldeToken) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { tihldeToken },
-          });
-        }
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user && token.id) {
+        session.user.id = token.id;
       }
-      return true;
+      return session;
     },
   },
   pages: {
