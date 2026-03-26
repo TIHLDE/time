@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   addMonths,
   eachDayOfInterval,
@@ -9,6 +9,7 @@ import {
   getDay,
   isBefore,
   isToday,
+  parse,
   startOfMonth,
   startOfToday,
   subMonths,
@@ -35,40 +36,65 @@ export function CreateEventForm() {
 
   const isDraggingRef = useRef(false);
   const dragModeRef = useRef<"add" | "remove">("add");
+  const activePointerIdRef = useRef<number | null>(null);
   const today = startOfToday();
 
   const titleError = title.trim().length < 2;
   const datesError = dates.length === 0;
   const showErrors = submitted;
 
-  useEffect(() => {
-    const onMouseUp = () => {
-      isDraggingRef.current = false;
-    };
-    document.addEventListener("mouseup", onMouseUp);
-    return () => document.removeEventListener("mouseup", onMouseUp);
-  }, []);
-
-  function handleDayMouseDown(d: Date) {
+  function applyDayWhileDragging(dateStr: string) {
+    if (!isDraggingRef.current) return;
+    const d = parse(dateStr, "yyyy-MM-dd", new Date());
     if (isBefore(d, today)) return;
+    setDates((prev) => {
+      if (dragModeRef.current === "add") {
+        return prev.includes(dateStr) ? prev : [...prev, dateStr].sort();
+      }
+      return prev.filter((x) => x !== dateStr);
+    });
+  }
+
+  function handleDayPointerDown(e: React.PointerEvent, d: Date) {
+    if (e.button !== 0) return;
+    if (isBefore(d, today)) return;
+    e.preventDefault();
     const str = format(d, "yyyy-MM-dd");
     const isSelected = dates.includes(str);
     dragModeRef.current = isSelected ? "remove" : "add";
     isDraggingRef.current = true;
+    activePointerIdRef.current = e.pointerId;
     setDates((prev) =>
       isSelected ? prev.filter((x) => x !== str) : [...prev, str].sort(),
     );
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== activePointerIdRef.current) return;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const btn = el?.closest("[data-cal-day]") as HTMLButtonElement | null;
+      const dayStr = btn?.dataset.calDay;
+      if (!dayStr) return;
+      applyDayWhileDragging(dayStr);
+    };
+
+    const onEnd = (ev: PointerEvent) => {
+      if (ev.pointerId !== activePointerIdRef.current) return;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onEnd);
+      document.removeEventListener("pointercancel", onEnd);
+      isDraggingRef.current = false;
+      activePointerIdRef.current = null;
+    };
+
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onEnd);
+    document.addEventListener("pointercancel", onEnd);
   }
 
-  function handleDayMouseEnter(d: Date) {
-    if (!isDraggingRef.current || isBefore(d, today)) return;
+  function handleDayPointerEnter(d: Date) {
+    if (!isDraggingRef.current) return;
     const str = format(d, "yyyy-MM-dd");
-    setDates((prev) => {
-      if (dragModeRef.current === "add") {
-        return prev.includes(str) ? prev : [...prev, str].sort();
-      }
-      return prev.filter((x) => x !== str);
-    });
+    applyDayWhileDragging(str);
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -87,7 +113,7 @@ export function CreateEventForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="space-y-6 rounded-lg border border-border bg-card p-6 shadow-sm"
+      className="space-y-6 rounded-lg border border-border bg-card p-4 shadow-sm sm:p-6"
     >
       <div>
         <h1 className="text-xl font-semibold">Nytt arrangement</h1>
@@ -116,7 +142,7 @@ export function CreateEventForm() {
         <h2 className="text-sm font-semibold text-card-foreground">
           Hvilke tider kan passe?
         </h2>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <select
             name="startTime"
             value={startTime}
@@ -154,12 +180,7 @@ export function CreateEventForm() {
           Dra for å velge flere datoer
         </p>
 
-        <div
-          className="select-none rounded-md border border-border p-4"
-          onMouseLeave={() => {
-            isDraggingRef.current = false;
-          }}
-        >
+        <div className="select-none rounded-md border border-border p-4">
           {/* Month nav */}
           <div className="mb-3 flex items-center justify-between">
             <button
@@ -204,8 +225,9 @@ export function CreateEventForm() {
                 <button
                   key={str}
                   type="button"
-                  onMouseDown={() => handleDayMouseDown(d)}
-                  onMouseEnter={() => handleDayMouseEnter(d)}
+                  data-cal-day={str}
+                  onPointerDown={(e) => handleDayPointerDown(e, d)}
+                  onPointerEnter={() => handleDayPointerEnter(d)}
                   disabled={isPast}
                   className={[
                     "flex h-9 w-full items-center justify-center rounded text-sm transition-colors",

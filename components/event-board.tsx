@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { format, parseISO } from "date-fns";
 import { nb } from "date-fns/locale";
 import Link from "next/link";
@@ -130,6 +137,7 @@ export function EventBoard({
   const [hoveredParticipantId, setHoveredParticipantId] = useState<
     string | null
   >(null);
+  const [narrowGrid, setNarrowGrid] = useState(false);
 
   const displayName =
     signedInUserName?.trim() || loadedParticipantName?.trim() || "";
@@ -191,40 +199,56 @@ export function EventBoard({
   }, [participants, signedInUserId, slug]);
 
   useEffect(() => {
-    const onMouseUp = () => {
-      if (!isDraggingRef.current) return;
-      isDraggingRef.current = false;
-      const action = dragActionRef.current;
-      dragActionRef.current = null;
-      const toPaint = new Set(paintedSlotsRef.current);
-      paintedSlotsRef.current = new Set();
-      lastPaintedRef.current = null;
-
-      if (!action || toPaint.size === 0) {
-        setPaintedSlots(new Set());
-        return;
-      }
-
-      setSelected((prev) => {
-        const next = { ...prev };
-        for (const key of toPaint) {
-          if (busyRef.current[key]) continue;
-          if (action === "remove") {
-            delete next[key];
-          } else if (action === "add_available") {
-            next[key] = "AVAILABLE";
-          } else {
-            next[key] = "IF_NEEDED";
-          }
-        }
-        return next;
-      });
-
-      setPaintedSlots(new Set());
-    };
-    document.addEventListener("mouseup", onMouseUp);
-    return () => document.removeEventListener("mouseup", onMouseUp);
+    const mq = window.matchMedia("(max-width: 640px)");
+    const apply = () => setNarrowGrid(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
   }, []);
+
+  const commitPaintDrag = useCallback(() => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    const action = dragActionRef.current;
+    dragActionRef.current = null;
+    const toPaint = new Set(paintedSlotsRef.current);
+    paintedSlotsRef.current = new Set();
+    lastPaintedRef.current = null;
+
+    if (!action || toPaint.size === 0) {
+      setPaintedSlots(new Set());
+      return;
+    }
+
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const key of toPaint) {
+        if (busyRef.current[key]) continue;
+        if (action === "remove") {
+          delete next[key];
+        } else if (action === "add_available") {
+          next[key] = "AVAILABLE";
+        } else {
+          next[key] = "IF_NEEDED";
+        }
+      }
+      return next;
+    });
+
+    setPaintedSlots(new Set());
+  }, []);
+
+  useEffect(() => {
+    const onPointerEnd = () => {
+      commitPaintDrag();
+    };
+    document.addEventListener("pointerup", onPointerEnd);
+    document.addEventListener("pointercancel", onPointerEnd);
+    return () => {
+      document.removeEventListener("pointerup", onPointerEnd);
+      document.removeEventListener("pointercancel", onPointerEnd);
+    };
+  }, [commitPaintDrag]);
 
   const peopleByCell = useMemo(() => {
     const map: Record<string, { name: string; status: SlotStatus }[]> = {};
@@ -383,28 +407,50 @@ export function EventBoard({
     lastPaintedRef.current = { date, time };
   }
 
+  const applyPaintRange = useCallback(
+    (date: string, time: string) => {
+      if (!isDraggingRef.current || !dragActionRef.current) return;
+      const last = lastPaintedRef.current;
+      const keys = last
+        ? getSlotKeysInRange(
+            last.date,
+            last.time,
+            date,
+            time,
+            visibleDates,
+            slots,
+          )
+        : [`${date}|${time}`];
+      const nextPainted = new Set(paintedSlotsRef.current);
+      for (const k of keys) nextPainted.add(k);
+      paintedSlotsRef.current = nextPainted;
+      setPaintedSlots((prev) => {
+        const next = new Set(prev);
+        for (const k of keys) next.add(k);
+        return next;
+      });
+      lastPaintedRef.current = { date, time };
+    },
+    [visibleDates, slots],
+  );
+
+  useEffect(() => {
+    const onPointerMove = (ev: PointerEvent) => {
+      if (!isDraggingRef.current || !dragActionRef.current) return;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const btn = el?.closest("[data-slot-key]") as HTMLButtonElement | null;
+      const slotKey = btn?.dataset.slotKey;
+      if (!slotKey) return;
+      const i = slotKey.indexOf("|");
+      if (i === -1) return;
+      applyPaintRange(slotKey.slice(0, i), slotKey.slice(i + 1));
+    };
+    document.addEventListener("pointermove", onPointerMove);
+    return () => document.removeEventListener("pointermove", onPointerMove);
+  }, [applyPaintRange]);
+
   function handleCellMouseEnter(date: string, time: string) {
-    if (!isDraggingRef.current || !dragActionRef.current) return;
-    const last = lastPaintedRef.current;
-    const keys = last
-      ? getSlotKeysInRange(
-          last.date,
-          last.time,
-          date,
-          time,
-          visibleDates,
-          slots,
-        )
-      : [`${date}|${time}`];
-    const nextPainted = new Set(paintedSlotsRef.current);
-    for (const k of keys) nextPainted.add(k);
-    paintedSlotsRef.current = nextPainted;
-    setPaintedSlots((prev) => {
-      const next = new Set(prev);
-      for (const k of keys) next.add(k);
-      return next;
-    });
-    lastPaintedRef.current = { date, time };
+    applyPaintRange(date, time);
   }
 
   function addAvailability() {
@@ -543,11 +589,11 @@ export function EventBoard({
               Synkroniser Google Kalender
             </button>
           ) : null}
-          <p className="text-sm text-muted-foreground">
+          <p className="min-w-0 shrink text-sm text-muted-foreground">
             {saved ? "Lagret." : "Ikke lagret ennå."}
           </p>
           {isEditing ? (
-            <div className="ml-auto flex flex-wrap items-center gap-2">
+            <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
               <button
                 type="button"
                 onClick={cancelAvailabilityEdit}
@@ -574,7 +620,7 @@ export function EventBoard({
               type="button"
               onClick={handleLockedModePrimaryClick}
               disabled={readOnly || !canParticipate}
-              className="ml-auto rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:ml-auto sm:w-auto"
             >
               <span
                 key={primaryBlinkNonce}
@@ -623,7 +669,8 @@ export function EventBoard({
             <div
               className="grid min-w-full select-none gap-0 text-sm"
               style={{
-                gridTemplateColumns: `56px repeat(${visibleDates.length}, minmax(80px, 1fr))`,
+                touchAction: "manipulation",
+                gridTemplateColumns: `56px repeat(${visibleDates.length}, minmax(${narrowGrid ? 72 : 80}px, 1fr))`,
                 gridTemplateRows: `40px repeat(${slots.length}, 32px)`,
               }}
             >
@@ -716,6 +763,7 @@ export function EventBoard({
                         <button
                           key={key}
                           type="button"
+                          data-slot-key={key}
                           title={tooltip}
                           style={transitionStyle}
                           tabIndex={interactive ? 0 : -1}
@@ -796,6 +844,12 @@ export function EventBoard({
                       key={p.id}
                       className="min-w-0 cursor-pointer wrap-break-word text-sm text-card-foreground"
                       onMouseEnter={() => setHoveredParticipantId(p.id)}
+                      onPointerDown={(e) => {
+                        if (e.pointerType !== "touch") return;
+                        setHoveredParticipantId((id) =>
+                          id === p.id ? null : p.id,
+                        );
+                      }}
                     >
                       {p.name}
                     </li>

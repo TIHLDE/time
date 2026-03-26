@@ -7,8 +7,13 @@ export async function AuthButtons() {
 
   if (session?.user) {
     return (
-      <div className="flex w-full flex-wrap items-center justify-end gap-3">
-        <p className="text-sm text-muted-foreground">{session.user.email}</p>
+      <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-3 sm:justify-end">
+        <p
+          className="min-w-0 max-w-full shrink truncate text-sm text-muted-foreground sm:max-w-[min(100%,14rem)]"
+          title={session.user.email ?? undefined}
+        >
+          {session.user.email}
+        </p>
         <form
           action={async () => {
             "use server";
