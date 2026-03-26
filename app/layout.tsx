@@ -7,8 +7,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Tidsgitter",
-  description: "Varmekart-app for gruppeplanlegging",
+  title: "TIHLDE Time",
+  description: "Gruppeplanlegging for TIHLDE",
 };
 
 export default function RootLayout({

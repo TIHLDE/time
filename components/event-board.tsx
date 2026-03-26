@@ -127,6 +127,9 @@ export function EventBoard({
   const [fillingWave, setFillingWave] = useState(false);
   /** Increment to restart the primary-button nudge animation. */
   const [primaryBlinkNonce, setPrimaryBlinkNonce] = useState(0);
+  const [hoveredParticipantId, setHoveredParticipantId] = useState<
+    string | null
+  >(null);
 
   const displayName =
     signedInUserName?.trim() || loadedParticipantName?.trim() || "";
@@ -179,7 +182,7 @@ export function EventBoard({
     setParticipantId(picked.id);
     setLoadedParticipantName(picked.name);
     setSaved(true);
-    setIsEditing(true);
+    setIsEditing(false);
     const pickedSelected = Object.fromEntries(
       picked.slots.map((slot) => [`${slot.date}|${slot.time}`, slot.status]),
     );
@@ -243,6 +246,29 @@ export function EventBoard({
     return map;
   }, [participants, selected, displayName]);
 
+  const participantsWithAvailability = useMemo(
+    () =>
+      [...participants]
+        .filter((p) => p.slots.length > 0)
+        .sort((a, b) => a.name.localeCompare(b.name, "nb")),
+    [participants],
+  );
+
+  const hoveredSlots = useMemo(() => {
+    if (!hoveredParticipantId) return null;
+    const p = participants.find((x) => x.id === hoveredParticipantId);
+    if (!p) return null;
+    const map: Record<string, SlotStatus> = Object.fromEntries(
+      p.slots.map((slot) => [`${slot.date}|${slot.time}`, slot.status]),
+    );
+    if (participantId && hoveredParticipantId === participantId) {
+      for (const [key, status] of Object.entries(selected)) {
+        map[key] = status;
+      }
+    }
+    return map;
+  }, [hoveredParticipantId, participants, participantId, selected]);
+
   const heatmapMaxCount = useMemo(() => {
     let max = 0;
     for (const date of visibleDates) {
@@ -277,6 +303,8 @@ export function EventBoard({
     };
 
     const totalCount = availableCount + ifNeededCount;
+    if (totalCount === 0) return "bg-muted/80 hover:bg-muted";
+
     if (heatmapMaxCount > 0 && totalCount === heatmapMaxCount) {
       return green(totalCount);
     }
@@ -302,10 +330,19 @@ export function EventBoard({
     mine: SlotStatus | undefined;
     isPainted: boolean;
     isBusy: boolean;
+    hoverActive: boolean;
+    hoveredStatus: SlotStatus | undefined;
   }): string {
-    const { key, mine, isPainted, isBusy } = args;
+    const { key, mine, isPainted, isBusy, hoverActive, hoveredStatus } = args;
     if (isBusy) return "bg-border cursor-not-allowed";
     if (isPainted) return `${previewClassForPaint()} cursor-pointer`;
+
+    if (hoverActive) {
+      if (hoveredStatus === "AVAILABLE") return "bg-green-700 hover:bg-green-800";
+      if (hoveredStatus === "IF_NEEDED")
+        return "bg-yellow-400 hover:bg-yellow-500 relative";
+      return "bg-muted/80 hover:bg-muted";
+    }
 
     if (mine === "AVAILABLE") return "bg-green-700 hover:bg-green-800";
     if (mine === "IF_NEEDED")
@@ -371,7 +408,7 @@ export function EventBoard({
   }
 
   function addAvailability() {
-    if (!canParticipate || readOnly) return;
+    if (!canParticipate || readOnly || saved) return;
     const next: Record<string, SlotStatus> = { ...selected };
     for (const d of dates) {
       for (const t of slots) {
@@ -397,19 +434,19 @@ export function EventBoard({
     }
   }
 
-  function handlePrimaryAvailabilityClick() {
-    if (!isEditing) {
+  function handleLockedModePrimaryClick() {
+    if (!canParticipate || readOnly) return;
+    if (saved) {
+      setIsEditing(true);
+    } else {
       addAvailability();
-      return;
     }
-    void submitAvailability();
   }
 
-  const primaryButtonLabel = !isEditing
-    ? "Legg til tilgjengelighet"
-    : hasUnsavedChanges
-      ? "Lagre tilgjengelighet"
-      : "Endre tilgjengelighet";
+  function cancelAvailabilityEdit() {
+    setSelected({ ...persistedSelected });
+    setIsEditing(false);
+  }
 
   async function submitAvailability() {
     if (!signedInUserName?.trim()) return;
@@ -429,6 +466,7 @@ export function EventBoard({
       localStorage.setItem(`participant_${slug}`, res.participantId);
       setParticipantId(res.participantId);
       setSaved(true);
+      setIsEditing(false);
       setPersistedSelected(selected);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Lagring feilet.";
@@ -499,33 +537,57 @@ export function EventBoard({
             <button
               type="button"
               onClick={syncGoogleCalendar}
-              className="rounded-md border border-border px-3 py-2 text-sm hover:bg-muted"
+              disabled={!isEditing}
+              className="rounded-md border border-border px-3 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
             >
               Synkroniser Google Kalender
             </button>
           ) : null}
           <p className="text-sm text-muted-foreground">
-            {saved
-              ? "Lagret. Du kan fortsette å redigere."
-              : "Ikke lagret ennå."}
+            {saved ? "Lagret." : "Ikke lagret ennå."}
           </p>
-          <button
-            type="button"
-            onClick={handlePrimaryAvailabilityClick}
-            disabled={readOnly || !canParticipate}
-            className="ml-auto rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span
-              key={primaryBlinkNonce}
-              className={
-                primaryBlinkNonce > 0
-                  ? "inline-block primary-button-nudge"
-                  : "inline-block"
-              }
+          {isEditing ? (
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={cancelAvailabilityEdit}
+                disabled={readOnly || !canParticipate}
+                className="rounded-md border border-border bg-card px-3 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Avbryt
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitAvailability()}
+                disabled={
+                  readOnly ||
+                  !canParticipate ||
+                  !hasUnsavedChanges
+                }
+                className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Lagre
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleLockedModePrimaryClick}
+              disabled={readOnly || !canParticipate}
+              className="ml-auto rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {primaryButtonLabel}
-            </span>
-          </button>
+              <span
+                key={primaryBlinkNonce}
+                className={
+                  primaryBlinkNonce > 0
+                    ? "inline-block primary-button-nudge"
+                    : "inline-block"
+                }
+              >
+                {saved ? "Endre tilgjengelighet" : "Legg til tilgjengelighet"}
+              </span>
+            </button>
+          )}
         </div>
 
         {pages > 1 && (
@@ -553,7 +615,10 @@ export function EventBoard({
           </div>
         )}
 
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+        <div
+          className="flex flex-col gap-3 lg:flex-row lg:items-stretch"
+          onMouseLeave={() => setHoveredParticipantId(null)}
+        >
           <div className="min-w-0 flex-1 overflow-x-auto">
             <div
               className="grid min-w-full select-none gap-0 text-sm"
@@ -607,22 +672,39 @@ export function EventBoard({
                           }
                         : undefined;
 
+                      const hoverActive = Boolean(
+                        hoveredParticipantId && !isEditing && hoveredSlots,
+                      );
+                      const hoveredStatus =
+                        hoverActive && hoveredSlots
+                          ? hoveredSlots[key]
+                          : undefined;
+                      const hoveredParticipant = hoveredParticipantId
+                        ? participants.find((x) => x.id === hoveredParticipantId)
+                        : undefined;
+
                       const colorClass = cellBackgroundClass({
                         key,
                         mine,
                         isPainted,
                         isBusy,
+                        hoverActive,
+                        hoveredStatus,
                       });
 
                       const people = peopleByCell[key] ?? [];
-                      const tooltip = people.length
-                        ? people
-                            .map(
-                              (p) =>
-                                `${p.name}: ${p.status === "AVAILABLE" ? "Tilgjengelig" : "Om nødvendig"}`,
-                            )
-                            .join("\n")
-                        : "Ingen ennå";
+                      const tooltip = hoverActive && hoveredParticipant
+                        ? hoveredStatus
+                          ? `${hoveredParticipant.name}: ${hoveredStatus === "AVAILABLE" ? "Tilgjengelig" : "Om nødvendig"}`
+                          : `${hoveredParticipant.name}: ikke tilgjengelig`
+                        : people.length
+                          ? people
+                              .map(
+                                (p) =>
+                                  `${p.name}: ${p.status === "AVAILABLE" ? "Tilgjengelig" : "Om nødvendig"}`,
+                              )
+                              .join("\n")
+                          : "Ingen ennå";
 
                       const interactive =
                         !readOnly && canParticipate && isEditing && !isBusy;
@@ -647,9 +729,11 @@ export function EventBoard({
                             if (!interactive) e.preventDefault();
                           }}
                           disabled={cellDisabled}
-                          className={`relative block h-full w-full min-w-0 border-b border-r border-border p-0 leading-none ${colorClass} ${interactive ? "cursor-pointer" : "cursor-default"} ${dateIndex === 0 ? "border-l" : ""}`}
+                          className={`relative block h-full w-full min-w-0 border-b border-r border-border p-0 leading-none ${colorClass} ${interactive || hoverActive ? "cursor-pointer" : "cursor-default"} ${dateIndex === 0 ? "border-l" : ""}`}
                         >
-                          {mine === "IF_NEEDED" && !isPainted ? (
+                          {(mine === "IF_NEEDED" ||
+                            (hoverActive && hoveredStatus === "IF_NEEDED")) &&
+                          !isPainted ? (
                             <span
                               className="pointer-events-none absolute inset-0 opacity-40"
                               style={{
@@ -667,33 +751,61 @@ export function EventBoard({
             </div>
           </div>
 
-          <div
-            className="flex shrink-0 flex-row items-center justify-center gap-2 border border-border bg-muted/40 p-3 lg:w-44 lg:flex-col lg:justify-start"
-            role="group"
-            aria-label="Fyllmodus"
-          >
-            <span className="text-xs font-medium text-muted-foreground lg:mb-1">
-              Modus
-            </span>
-            <div className="flex flex-row gap-2 lg:flex-col lg:gap-3">
-              <button
-                type="button"
-                onClick={() => setFillMode("AVAILABLE")}
-                disabled={!canParticipate || readOnly}
-                className={`flex min-h-[72px] flex-1 flex-col items-center justify-center rounded-md border-2 px-3 py-2 text-center text-xs font-medium transition-colors lg:w-full ${fillMode === "AVAILABLE" ? "border-green-700 bg-green-700 text-white" : "border-border bg-card text-card-foreground hover:bg-muted"}`}
-              >
-                <span className="mb-1 h-3 w-3 rounded-full bg-green-700 ring-2 ring-green-800/30" />
-                Tilgjengelig
-              </button>
-              <button
-                type="button"
-                onClick={() => setFillMode("IF_NEEDED")}
-                disabled={!canParticipate || readOnly}
-                className={`flex min-h-[72px] flex-1 flex-col items-center justify-center rounded-md border-2 px-3 py-2 text-center text-xs font-medium transition-colors lg:w-full ${fillMode === "IF_NEEDED" ? "border-yellow-500 bg-yellow-400 text-yellow-950" : "border-border bg-card text-card-foreground hover:bg-muted"}`}
-              >
-                <span className="mb-1 h-3 w-3 rounded-full bg-yellow-400 ring-2 ring-yellow-600/30" />
-                Om nødvendig
-              </button>
+          <div className="flex w-full shrink-0 flex-col gap-3 border border-border bg-muted/40 p-3 lg:w-52">
+            <div
+              className="flex flex-row items-center justify-center gap-2 lg:flex-col lg:justify-start"
+              role="group"
+              aria-label="Fyllmodus"
+            >
+              <span className="text-xs font-medium text-muted-foreground lg:mb-1">
+                Modus
+              </span>
+              <div className="flex flex-row gap-2 lg:flex-col lg:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFillMode("AVAILABLE")}
+                  disabled={!canParticipate || readOnly || !isEditing}
+                  className={`flex min-h-[72px] flex-1 flex-col items-center justify-center rounded-md border-2 px-3 py-2 text-center text-xs font-medium transition-colors lg:w-full ${fillMode === "AVAILABLE" ? "border-green-700 bg-green-700 text-white" : "border-border bg-card text-card-foreground hover:bg-muted"}`}
+                >
+                  <span className="mb-1 h-3 w-3 rounded-full bg-green-700 ring-2 ring-green-800/30" />
+                  Tilgjengelig
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFillMode("IF_NEEDED")}
+                  disabled={!canParticipate || readOnly || !isEditing}
+                  className={`flex min-h-[72px] flex-1 flex-col items-center justify-center rounded-md border-2 px-3 py-2 text-center text-xs font-medium transition-colors lg:w-full ${fillMode === "IF_NEEDED" ? "border-yellow-500 bg-yellow-400 text-yellow-950" : "border-border bg-card text-card-foreground hover:bg-muted"}`}
+                >
+                  <span className="mb-1 h-3 w-3 rounded-full bg-yellow-400 ring-2 ring-yellow-600/30" />
+                  Om nødvendig
+                </button>
+              </div>
+            </div>
+
+            <div
+              className="min-w-0 border-t border-border pt-3"
+              aria-label="Deltakere med tilgjengelighet"
+            >
+              <span className="text-xs font-medium text-muted-foreground">
+                Deltakere
+              </span>
+              {participantsWithAvailability.length > 0 ? (
+                <ul className="mt-2 list-none space-y-1">
+                  {participantsWithAvailability.map((p) => (
+                    <li
+                      key={p.id}
+                      className="min-w-0 cursor-pointer wrap-break-word text-sm text-card-foreground"
+                      onMouseEnter={() => setHoveredParticipantId(p.id)}
+                    >
+                      {p.name}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Ingen har lagret ennå
+                </p>
+              )}
             </div>
           </div>
         </div>
