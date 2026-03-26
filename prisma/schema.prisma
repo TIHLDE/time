@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Event {
+  id            String        @id @default(cuid())
+  slug          String        @unique
+  title         String
+  createdById   String
+  dates         String[]
+  startTime     String
+  endTime       String
+  slotDuration  Int           @default(30)
+  deadline      DateTime?
+  createdAt     DateTime      @default(now())
+  participants  Participant[]
+  slots         Slot[]
+
+  @@index([slug])
+  @@index([createdById])
+}
+
+model Participant {
+  id        String   @id @default(cuid())
+  eventId   String
+  name      String
+  userId    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id])
+  slots     Slot[]
+
+  @@index([eventId])
+  @@index([userId])
+  @@unique([eventId, userId])
+}
+
+model Slot {
+  id            String      @id @default(cuid())
+  participantId String
+  eventId       String
+  date          String
+  time          String
+  status        SlotStatus
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  event         Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, date, time])
+  @@index([participantId])
+  @@unique([participantId, date, time])
+}
+
+model User {
+  id                 String        @id @default(cuid())
+  email              String        @unique
+  name               String?
+  googleAccessToken  String?
+  googleRefreshToken String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  participants       Participant[]
+  accounts           Account[]
+  sessions           Session[]
+}
+
+model Account {
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?
+  access_token       String?
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?
+  session_state      String?
+  refresh_token_expires_in Int?
+  user               User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([sessionToken])
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+enum SlotStatus {
+  AVAILABLE
+  IF_NEEDED
+}
