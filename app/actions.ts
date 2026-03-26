@@ -85,13 +85,25 @@ export async function saveAvailability(input: unknown) {
       })
     : null;
 
+  let authenticatedUserId: string | null = null;
+  if (session?.user?.id) {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true },
+    });
+    if (!dbUser) {
+      throw new Error("Innloggingen er ikke gyldig lenger. Logg ut og inn igjen.");
+    }
+    authenticatedUserId = dbUser.id;
+  }
+
   if (!participant) {
-    if (session?.user?.id) {
+    if (authenticatedUserId) {
       participant = await prisma.participant.upsert({
-        where: { eventId_userId: { eventId: event.id, userId: session.user.id } },
+        where: { eventId_userId: { eventId: event.id, userId: authenticatedUserId } },
         create: {
           eventId: event.id,
-          userId: session.user.id,
+          userId: authenticatedUserId,
           name: participantName,
         },
         update: {

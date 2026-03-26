@@ -31,3 +31,20 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
     Arial, sans-serif;
 }
+
+/* Subtle nudge on primary action when user tries to paint before edit mode */
+@keyframes primaryButtonNudge {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .primary-button-nudge {
+    animation: primaryButtonNudge 0.25s ease-in-out 1;
+  }
+}

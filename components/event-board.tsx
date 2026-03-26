@@ -83,6 +83,20 @@ function resolveDragAction(
   return visual === "yellow" ? "remove" : "add_if_needed";
 }
 
+function areSelectionsEqual(
+  a: Record<string, SlotStatus>,
+  b: Record<string, SlotStatus>,
+): boolean {
+  const aEntries = Object.entries(a);
+  const bEntries = Object.entries(b);
+  if (aEntries.length !== bEntries.length) return false;
+
+  for (const [key, value] of aEntries) {
+    if (b[key] !== value) return false;
+  }
+  return true;
+}
+
 export function EventBoard({
   slug,
   shareUrl,
@@ -103,11 +117,16 @@ export function EventBoard({
   const [fillMode, setFillMode] = useState<FillMode>("AVAILABLE");
   const [isEditing, setIsEditing] = useState(false);
   const [selected, setSelected] = useState<Record<string, SlotStatus>>({});
+  const [persistedSelected, setPersistedSelected] = useState<
+    Record<string, SlotStatus>
+  >({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [paintedSlots, setPaintedSlots] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
   const [copied, setCopied] = useState(false);
   const [fillingWave, setFillingWave] = useState(false);
+  /** Increment to restart the primary-button nudge animation. */
+  const [primaryBlinkNonce, setPrimaryBlinkNonce] = useState(0);
 
   const displayName =
     signedInUserName?.trim() || loadedParticipantName?.trim() || "";
@@ -120,7 +139,6 @@ export function EventBoard({
   const busyRef = useRef(busy);
   const isEditingRef = useRef(isEditing);
   const selectedRef = useRef(selected);
-
   useEffect(() => {
     fillModeRef.current = fillMode;
   }, [fillMode]);
@@ -139,6 +157,7 @@ export function EventBoard({
   const othersHaveSlots = participants.some((p) => p.slots.length > 0);
   const showHeatmap =
     saved || (!canParticipate && othersHaveSlots);
+  const hasUnsavedChanges = !areSelectionsEqual(selected, persistedSelected);
   const slots = useMemo(
     () => buildTimeSlots(startTime, endTime, slotDuration),
     [startTime, endTime, slotDuration],
@@ -161,11 +180,11 @@ export function EventBoard({
     setLoadedParticipantName(picked.name);
     setSaved(true);
     setIsEditing(true);
-    setSelected(
-      Object.fromEntries(
-        picked.slots.map((slot) => [`${slot.date}|${slot.time}`, slot.status]),
-      ),
+    const pickedSelected = Object.fromEntries(
+      picked.slots.map((slot) => [`${slot.date}|${slot.time}`, slot.status]),
     );
+    setSelected(pickedSelected);
+    setPersistedSelected(pickedSelected);
   }, [participants, signedInUserId, slug]);
 
   useEffect(() => {
@@ -245,10 +264,10 @@ export function EventBoard({
     const ifNeededCount = list.filter((e) => e.status === "IF_NEEDED").length;
 
     const green = (count: number) => {
-      if (count === 1) return "bg-green-200 hover:bg-green-300";
-      if (count === 2) return "bg-green-300 hover:bg-green-400";
-      if (count === 3) return "bg-green-400 hover:bg-green-500";
-      return "bg-green-500 hover:bg-green-600";
+      if (count === 1) return "bg-green-300 hover:bg-green-400";
+      if (count === 2) return "bg-green-400 hover:bg-green-500";
+      if (count === 3) return "bg-green-500 hover:bg-green-600";
+      return "bg-green-600 hover:bg-green-700";
     };
     const yellow = (count: number) => {
       if (count === 1) return "bg-yellow-200 hover:bg-yellow-300";
@@ -273,8 +292,8 @@ export function EventBoard({
   function previewClassForPaint(): string {
     const action = dragActionRef.current;
     if (!action) return "bg-muted";
-    if (action === "remove") return "bg-red-500";
-    if (action === "add_available") return "bg-green-500";
+    if (action === "remove") return "bg-red-300";
+    if (action === "add_available") return "bg-green-300";
     return "bg-yellow-400";
   }
 
@@ -288,22 +307,29 @@ export function EventBoard({
     if (isBusy) return "bg-border cursor-not-allowed";
     if (isPainted) return `${previewClassForPaint()} cursor-pointer`;
 
-    if (mine === "AVAILABLE") return "bg-green-500 hover:bg-green-600";
+    if (mine === "AVAILABLE") return "bg-green-700 hover:bg-green-800";
     if (mine === "IF_NEEDED")
       return "bg-yellow-400 hover:bg-yellow-500 relative";
 
-    if (isEditing) return "bg-red-500 hover:bg-red-600";
+    if (isEditing) return "bg-red-300 hover:bg-red-200";
 
     if (showHeatmap) return getHeatmapColor(key);
 
     return "bg-muted/80 hover:bg-muted";
   }
 
+  function triggerPrimaryBlink() {
+    setPrimaryBlinkNonce((n) => n + 1);
+  }
+
   function handleCellMouseDown(date: string, time: string) {
     if (readOnly || !canParticipate) return;
     const key = `${date}|${time}`;
     if (busyRef.current[key]) return;
-    if (!isEditingRef.current) return;
+    if (!isEditingRef.current) {
+      triggerPrimaryBlink();
+      return;
+    }
 
     const visual = getCellVisual(
       key,
@@ -381,9 +407,9 @@ export function EventBoard({
 
   const primaryButtonLabel = !isEditing
     ? "Legg til tilgjengelighet"
-    : saved
-      ? "Endre tilgjengelighet"
-      : "Lagre tilgjengelighet";
+    : hasUnsavedChanges
+      ? "Lagre tilgjengelighet"
+      : "Endre tilgjengelighet";
 
   async function submitAvailability() {
     if (!signedInUserName?.trim()) return;
@@ -393,15 +419,26 @@ export function EventBoard({
         const [date, time] = key.split("|");
         return { date, time, status };
       });
-    const res = await saveAvailability({
-      eventSlug: slug,
-      participantId,
-      participantName: signedInUserName.trim(),
-      slots: payload,
-    });
-    localStorage.setItem(`participant_${slug}`, res.participantId);
-    setParticipantId(res.participantId);
-    setSaved(true);
+    try {
+      const res = await saveAvailability({
+        eventSlug: slug,
+        participantId,
+        participantName: signedInUserName.trim(),
+        slots: payload,
+      });
+      localStorage.setItem(`participant_${slug}`, res.participantId);
+      setParticipantId(res.participantId);
+      setSaved(true);
+      setPersistedSelected(selected);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Lagring feilet.";
+      if (message.includes("Innloggingen er ikke gyldig lenger")) {
+        alert(`${message} Du blir sendt til innlogging.`);
+        window.location.assign("/");
+        return;
+      }
+      alert(message);
+    }
   }
 
   async function syncGoogleCalendar() {
@@ -478,7 +515,16 @@ export function EventBoard({
             disabled={readOnly || !canParticipate}
             className="ml-auto rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {primaryButtonLabel}
+            <span
+              key={primaryBlinkNonce}
+              className={
+                primaryBlinkNonce > 0
+                  ? "inline-block primary-button-nudge"
+                  : "inline-block"
+              }
+            >
+              {primaryButtonLabel}
+            </span>
           </button>
         </div>
 
@@ -580,6 +626,9 @@ export function EventBoard({
 
                       const interactive =
                         !readOnly && canParticipate && isEditing && !isBusy;
+                      const cellDisabled =
+                        readOnly || !canParticipate || isBusy;
+                      const cellAriaDisabled = !interactive;
 
                       return (
                         <button
@@ -587,9 +636,17 @@ export function EventBoard({
                           type="button"
                           title={tooltip}
                           style={transitionStyle}
-                          onMouseDown={() => handleCellMouseDown(date, time)}
+                          tabIndex={interactive ? 0 : -1}
+                          aria-disabled={cellAriaDisabled}
+                          onPointerDown={(e) => {
+                            if (e.button !== 0) return;
+                            handleCellMouseDown(date, time);
+                          }}
                           onMouseEnter={() => handleCellMouseEnter(date, time)}
-                          disabled={!interactive}
+                          onClick={(e) => {
+                            if (!interactive) e.preventDefault();
+                          }}
+                          disabled={cellDisabled}
                           className={`relative block h-full w-full min-w-0 border-b border-r border-border p-0 leading-none ${colorClass} ${interactive ? "cursor-pointer" : "cursor-default"} ${dateIndex === 0 ? "border-l" : ""}`}
                         >
                           {mine === "IF_NEEDED" && !isPainted ? (
@@ -623,9 +680,9 @@ export function EventBoard({
                 type="button"
                 onClick={() => setFillMode("AVAILABLE")}
                 disabled={!canParticipate || readOnly}
-                className={`flex min-h-[72px] flex-1 flex-col items-center justify-center rounded-md border-2 px-3 py-2 text-center text-xs font-medium transition-colors lg:w-full ${fillMode === "AVAILABLE" ? "border-green-600 bg-green-600 text-white" : "border-border bg-card text-card-foreground hover:bg-muted"}`}
+                className={`flex min-h-[72px] flex-1 flex-col items-center justify-center rounded-md border-2 px-3 py-2 text-center text-xs font-medium transition-colors lg:w-full ${fillMode === "AVAILABLE" ? "border-green-700 bg-green-700 text-white" : "border-border bg-card text-card-foreground hover:bg-muted"}`}
               >
-                <span className="mb-1 h-3 w-3 rounded-full bg-green-500 ring-2 ring-green-700/30" />
+                <span className="mb-1 h-3 w-3 rounded-full bg-green-700 ring-2 ring-green-800/30" />
                 Tilgjengelig
               </button>
               <button
