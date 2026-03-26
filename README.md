@@ -1,69 +1,69 @@
-## Time Grid
+## Tidsgitter
 
-Full-stack group scheduling app built with:
+Fullstack-app for gruppeplanlegging bygget med:
 
 - Next.js 14 App Router + TypeScript + Tailwind CSS
 - NextAuth.js v5 (Google OAuth)
 - Prisma ORM + Vercel Postgres
-- Google Calendar API (read-only sync)
+- Google Calendar API (skrivebeskyttet synkronisering)
 
-## Getting Started
+## Kom i gang
 
-1) Install dependencies:
+1) Installer avhengigheter:
 
 ```bash
 pnpm install
 ```
 
-2) Create env file:
+2) Opprett miljøfil:
 
 ```bash
 cp .env.example .env.local
 ```
 
-3) Start local Postgres:
+3) Start lokal Postgres:
 
 ```bash
 docker compose up -d db
 ```
 
-4) Run Prisma migrations:
+4) Kjør Prisma-migreringer:
 
 ```bash
 pnpm prisma migrate dev --name init
 ```
 
-5) Start dev server:
+5) Start utviklingsserver:
 
 ```bash
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Åpne [http://localhost:3000](http://localhost:3000).
 
-## Google OAuth Setup
+## Oppsett av Google OAuth
 
-- Create an OAuth client in Google Cloud Console
-- Add redirect URI: `http://localhost:3000/api/auth/callback/google`
-- Put credentials in `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`
+- Opprett en OAuth-klient i Google Cloud Console
+- Legg til redirect-URI: `http://localhost:3000/api/auth/callback/google`
+- Legg inn nøkler i `AUTH_GOOGLE_ID` og `AUTH_GOOGLE_SECRET`
 
-For production, also add:
+For produksjon, legg også til:
 
 - `https://<your-domain>/api/auth/callback/google`
 
-## Vercel Deployment Notes
+## Notater for deploy til Vercel
 
-- Add all variables from `.env.example` to Vercel Project Settings
+- Legg til alle variablene fra `.env.example` i Vercel Project Settings
 - Use Vercel Postgres `DATABASE_URL`
-- Run `pnpm prisma migrate deploy` during deployment (or in CI)
+- Kjør `pnpm prisma migrate deploy` under deploy (eller i CI)
 
-## TIHLDE Login Notes
+## Notater om TIHLDE-innlogging
 
-- TIHLDE login writes/reads user and session data through Prisma.
-- If `DATABASE_URL` points to a placeholder or unreachable host, login fails and can surface as auth errors.
+- TIHLDE-innlogging skriver/leser bruker- og sesjonsdata via Prisma.
+- Hvis `DATABASE_URL` peker på en ugyldig eller utilgjengelig host, feiler innlogging og kan vises som auth-feil.
 
-## Learn More
+## Lær mer
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Next.js Documentation](https://nextjs.org/docs) - lær mer om funksjoner og API i Next.js.
 - [Prisma docs](https://www.prisma.io/docs)
 - [NextAuth.js docs](https://authjs.dev)

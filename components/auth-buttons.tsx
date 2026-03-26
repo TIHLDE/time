@@ -7,8 +7,8 @@ export async function AuthButtons() {
 
   if (session?.user) {
     return (
-      <div className="flex flex-wrap items-center justify-center gap-3">
-        <p className="text-sm text-zinc-600">{session.user.email}</p>
+      <div className="flex w-full flex-wrap items-center justify-end gap-3">
+        <p className="text-sm text-muted-foreground">{session.user.email}</p>
         <form
           action={async () => {
             "use server";
@@ -17,9 +17,9 @@ export async function AuthButtons() {
         >
           <button
             type="submit"
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm hover:bg-zinc-100"
+            className="rounded-md border border-border px-3 py-2 text-sm hover:bg-muted"
           >
-            Sign out
+            Logg ut
           </button>
         </form>
       </div>
@@ -27,7 +27,7 @@ export async function AuthButtons() {
   }
 
   return (
-    <div className="w-full space-y-3 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm">
+    <div className="w-full space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
       <form
         action={async () => {
           "use server";
@@ -36,16 +36,16 @@ export async function AuthButtons() {
       >
         <button
           type="submit"
-          className="w-full rounded-md bg-zinc-900 px-3 py-2.5 text-sm text-white hover:bg-zinc-800"
+          className="w-full rounded-md bg-primary px-3 py-2.5 text-sm text-primary-foreground hover:opacity-90"
         >
-          Sign in with Google
+          Logg inn med Google
         </button>
       </form>
 
       <div className="flex items-center gap-3">
-        <div className="h-px flex-1 bg-zinc-200" />
-        <span className="text-xs uppercase tracking-wide text-zinc-500">eller</span>
-        <div className="h-px flex-1 bg-zinc-200" />
+        <div className="h-px flex-1 bg-border" />
+        <span className="text-xs uppercase tracking-wide text-muted-foreground">eller</span>
+        <div className="h-px flex-1 bg-border" />
       </div>
 
       <form
@@ -69,18 +69,18 @@ export async function AuthButtons() {
           type="text"
           placeholder="TIHLDE-brukernavn"
           required
-          className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
         />
         <input
           name="password"
           type="password"
           placeholder="Passord"
           required
-          className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm focus:border-zinc-500 focus:outline-none"
+          className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
         />
         <button
           type="submit"
-          className="w-full rounded-md border border-zinc-300 px-3 py-2.5 text-sm hover:bg-zinc-100"
+          className="w-full rounded-md border border-border px-3 py-2.5 text-sm hover:bg-muted"
         >
           Logg inn med TIHLDE
         </button>

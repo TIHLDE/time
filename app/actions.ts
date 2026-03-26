@@ -18,7 +18,7 @@ const eventSchema = z.object({
 export async function createEvent(formData: FormData) {
   const session = await auth();
   if (!session?.user?.id) {
-    throw new Error("You must be signed in.");
+    throw new Error("Du må være innlogget.");
   }
 
   const parsed = eventSchema.safeParse({
@@ -30,7 +30,7 @@ export async function createEvent(formData: FormData) {
   });
 
   if (!parsed.success) {
-    throw new Error("Invalid event input");
+    throw new Error("Ugyldig arrangementsinndata");
   }
 
   const slug = uuidv4().replace(/-/g, "").slice(0, 6);
@@ -66,17 +66,17 @@ export async function saveAvailability(input: unknown) {
   const session = await auth();
   const parsed = saveSchema.safeParse(input);
   if (!parsed.success) {
-    throw new Error("Invalid availability payload");
+    throw new Error("Ugyldig payload for tilgjengelighet");
   }
 
   const { eventSlug, participantId, participantName, slots } = parsed.data;
   const event = await prisma.event.findUnique({ where: { slug: eventSlug } });
   if (!event) {
-    throw new Error("Event not found");
+    throw new Error("Arrangementet ble ikke funnet");
   }
 
   if (event.deadline && new Date() > event.deadline) {
-    throw new Error("Event is read-only after deadline");
+    throw new Error("Arrangementet er skrivebeskyttet etter fristen");
   }
 
   let participant = participantId
@@ -107,7 +107,7 @@ export async function saveAvailability(input: unknown) {
       });
     }
   } else if (participant.eventId !== event.id) {
-    throw new Error("Participant/event mismatch");
+    throw new Error("Deltaker og arrangement stemmer ikke overens");
   } else {
     participant = await prisma.participant.update({
       where: { id: participant.id },

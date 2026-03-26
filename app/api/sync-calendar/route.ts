@@ -17,12 +17,12 @@ function overlaps(slotStart: Date, slotEnd: Date, eventStart: Date, eventEnd: Da
 export async function POST(req: Request) {
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Ikke autorisert" }, { status: 401 });
   }
 
   const { slug } = (await req.json()) as { slug?: string };
   if (!slug) {
-    return NextResponse.json({ error: "Missing slug" }, { status: 400 });
+    return NextResponse.json({ error: "Mangler slug" }, { status: 400 });
   }
 
   const user = await prisma.user.findUnique({
@@ -30,14 +30,14 @@ export async function POST(req: Request) {
   });
 
   if (!user?.googleAccessToken) {
-    return NextResponse.json({ error: "No Google token found" }, { status: 400 });
+    return NextResponse.json({ error: "Fant ikke Google-token" }, { status: 400 });
   }
 
   const event = await prisma.event.findUnique({
     where: { slug },
   });
   if (!event) {
-    return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    return NextResponse.json({ error: "Arrangementet ble ikke funnet" }, { status: 404 });
   }
 
   const minDate = `${event.dates[0]}T00:00:00.000Z`;
@@ -56,7 +56,10 @@ export async function POST(req: Request) {
   });
 
   if (!response.ok) {
-    return NextResponse.json({ error: "Failed to fetch Google events" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Kunne ikke hente Google-hendelser" },
+      { status: 500 },
+    );
   }
 
   const data = (await response.json()) as { items?: GoogleEvent[] };

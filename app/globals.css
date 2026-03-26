@@ -1,13 +1,28 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fafafa;
-  --foreground: #18181b;
+  color-scheme: dark;
+  --background: hsl(212 100% 8%);
+  --foreground: hsl(210 40% 98%);
+  --card: hsl(211 96% 10%);
+  --card-foreground: hsl(210 40% 98%);
+  --primary: hsl(219 100% 81%);
+  --primary-foreground: hsl(0 0% 0%);
+  --muted: hsl(217.2 32.6% 17.5%);
+  --muted-foreground: hsl(215 20.2% 65.1%);
+  --border: hsl(217.2 32.6% 17.5%);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
 }
 
 body {

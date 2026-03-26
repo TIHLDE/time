@@ -60,14 +60,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         if (!loginResponse.ok) {
           if (loginResponse.status >= 500) {
-            throw new Error("TIHLDE login endpoint returned a server error.");
+            throw new Error("TIHLDE-innloggingstjenesten returnerte en serverfeil.");
           }
           return null;
         }
 
         const loginData = (await loginResponse.json()) as { token?: string };
         if (!loginData.token) {
-          throw new Error("TIHLDE login response did not include a token.");
+          throw new Error("Svar fra TIHLDE-innlogging manglet token.");
         }
 
         const profileResponse = await fetch(`${tihldeApiBaseUrl}/users/me/`, {
@@ -79,7 +79,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         if (!profileResponse.ok) {
           if (profileResponse.status >= 500) {
-            throw new Error("TIHLDE profile endpoint returned a server error.");
+            throw new Error("TIHLDE-profiltjenesten returnerte en serverfeil.");
           }
           return null;
         }
@@ -92,7 +92,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         };
 
         if (!profile.email) {
-          throw new Error("TIHLDE profile response did not include an email.");
+          throw new Error("Svar fra TIHLDE-profil manglet e-postadresse.");
         }
 
         const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(" ").trim();

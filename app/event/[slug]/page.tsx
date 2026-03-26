@@ -30,14 +30,14 @@ export default async function EventPage({ params }: PageProps) {
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-4 px-3 py-8 sm:px-8">
-      <div className="rounded-lg border border-zinc-200 bg-white p-4">
+      <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">{event.title}</h1>
-            <p className="text-sm text-zinc-500">Share this link: {shareUrl}</p>
+            <p className="text-sm text-muted-foreground">Del denne lenken: {shareUrl}</p>
           </div>
-          <Link href="/" className="text-sm text-zinc-600 underline">
-            Back home
+          <Link href="/" className="text-sm text-primary underline">
+            Tilbake til forsiden
           </Link>
         </div>
       </div>
@@ -51,6 +51,7 @@ export default async function EventPage({ params }: PageProps) {
         slotDuration={event.slotDuration}
         deadline={event.deadline?.toISOString() ?? null}
         signedInUserId={session?.user?.id}
+        signedInUserName={session?.user?.name ?? undefined}
         participants={event.participants}
       />
     </div>

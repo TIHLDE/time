@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { format, parseISO } from "date-fns";
+import { nb } from "date-fns/locale";
 import type { SlotStatus } from "@prisma/client";
-import { buildTimeSlots, toPrettyTime } from "@/lib/time";
+import { buildTimeSlots } from "@/lib/time";
 import { saveAvailability } from "@/app/actions";
 
 type ParticipantSeed = {
@@ -21,10 +23,36 @@ type EventBoardProps = {
   slotDuration: number;
   deadline?: string | null;
   signedInUserId?: string;
+  signedInUserName?: string;
   participants: ParticipantSeed[];
 };
 
 type FillMode = "AVAILABLE" | "IF_NEEDED";
+
+function getSlotKeysInRange(
+  date1: string,
+  time1: string,
+  date2: string,
+  time2: string,
+  visibleDates: string[],
+  slots: string[],
+): string[] {
+  const d1 = visibleDates.indexOf(date1);
+  const d2 = visibleDates.indexOf(date2);
+  const t1 = slots.indexOf(time1);
+  const t2 = slots.indexOf(time2);
+  const minD = Math.min(d1, d2);
+  const maxD = Math.max(d1, d2);
+  const minT = Math.min(t1, t2);
+  const maxT = Math.max(t1, t2);
+  const keys: string[] = [];
+  for (let d = minD; d <= maxD; d++) {
+    for (let t = minT; t <= maxT; t++) {
+      keys.push(`${visibleDates[d]}|${slots[t]}`);
+    }
+  }
+  return keys;
+}
 
 export function EventBoard({
   slug,
@@ -34,6 +62,7 @@ export function EventBoard({
   slotDuration,
   deadline,
   signedInUserId,
+  signedInUserName,
   participants,
 }: EventBoardProps) {
   const [name, setName] = useState("");
@@ -43,11 +72,27 @@ export function EventBoard({
   const [includeIfNeeded, setIncludeIfNeeded] = useState(true);
   const [selected, setSelected] = useState<Record<string, SlotStatus>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
-  const [dragging, setDragging] = useState(false);
+  const [paintedSlots, setPaintedSlots] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
 
+  const isDraggingRef = useRef(false);
+  const paintedSlotsRef = useRef<Set<string>>(new Set());
+  const lastPaintedRef = useRef<{ date: string; time: string } | null>(null);
+  const fillModeRef = useRef<FillMode>(fillMode);
+  const busyRef = useRef(busy);
+
+  useEffect(() => {
+    fillModeRef.current = fillMode;
+  }, [fillMode]);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
   const readOnly = Boolean(deadline && new Date() > new Date(deadline));
-  const slots = useMemo(() => buildTimeSlots(startTime, endTime, slotDuration), [startTime, endTime, slotDuration]);
+  const slots = useMemo(
+    () => buildTimeSlots(startTime, endTime, slotDuration),
+    [startTime, endTime, slotDuration],
+  );
   const pages = Math.ceil(dates.length / 7);
   const visibleDates = dates.slice(page * 7, page * 7 + 7);
 
@@ -59,15 +104,50 @@ export function EventBoard({
       : undefined;
     const byStored = stored ? participants.find((p) => p.id === stored) : undefined;
     const picked = byAccount ?? byStored;
-
     if (!picked) return;
     setParticipantId(picked.id);
     setName(picked.name);
     setSaved(true);
     setSelected(
-      Object.fromEntries(picked.slots.map((slot) => [`${slot.date}|${slot.time}`, slot.status])),
+      Object.fromEntries(
+        picked.slots.map((slot) => [`${slot.date}|${slot.time}`, slot.status]),
+      ),
     );
   }, [participants, signedInUserId, slug]);
+
+  useEffect(() => {
+    if (!signedInUserName) return;
+    setName((prev) => prev || signedInUserName);
+  }, [signedInUserName]);
+
+  useEffect(() => {
+    const onMouseUp = () => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+      const toPaint = new Set(paintedSlotsRef.current);
+      paintedSlotsRef.current = new Set();
+      lastPaintedRef.current = null;
+
+      if (toPaint.size === 0) {
+        setPaintedSlots(new Set());
+        return;
+      }
+
+      setSelected((prev) => {
+        const next = { ...prev };
+        for (const key of toPaint) {
+          if (!busyRef.current[key]) {
+            next[key] = fillModeRef.current;
+          }
+        }
+        return next;
+      });
+
+      setPaintedSlots(new Set());
+    };
+    document.addEventListener("mouseup", onMouseUp);
+    return () => document.removeEventListener("mouseup", onMouseUp);
+  }, []);
 
   const peopleByCell = useMemo(() => {
     const map: Record<string, { name: string; status: SlotStatus }[]> = {};
@@ -80,35 +160,57 @@ export function EventBoard({
     }
     if (name) {
       for (const [key, status] of Object.entries(selected)) {
-        map[key] = [...(map[key] ?? []).filter((r) => r.name !== name), { name, status }];
+        map[key] = [
+          ...(map[key] ?? []).filter((r) => r.name !== name),
+          { name, status },
+        ];
       }
     }
     return map;
   }, [participants, selected, name]);
 
-  const intensity = (key: string) => {
+  function getHeatmapColor(key: string): string {
     const list = peopleByCell[key] ?? [];
-    const count = list.filter((entry) =>
-      includeIfNeeded ? true : entry.status === "AVAILABLE",
+    const count = list.filter((e) =>
+      includeIfNeeded ? true : e.status === "AVAILABLE",
     ).length;
-    if (count === 0) return "bg-zinc-100";
-    if (count === 1) return "bg-green-200";
-    if (count === 2) return "bg-green-300";
-    if (count === 3) return "bg-green-400";
-    return "bg-green-500 text-white";
-  };
+    if (count === 0) return "bg-card hover:bg-muted";
+    if (count === 1) return "bg-green-200 hover:bg-green-300";
+    if (count === 2) return "bg-green-300 hover:bg-green-400";
+    if (count === 3) return "bg-green-400 hover:bg-green-500";
+    return "bg-green-500 hover:bg-green-600";
+  }
 
-  const paintCell = (key: string) => {
-    if (readOnly || busy[key]) return;
-    setSelected((prev) => ({
-      ...prev,
-      [key]: fillMode,
-    }));
-  };
+  function handleCellMouseDown(date: string, time: string) {
+    if (readOnly) return;
+    const key = `${date}|${time}`;
+    if (busyRef.current[key]) return;
+    isDraggingRef.current = true;
+    paintedSlotsRef.current = new Set([key]);
+    setPaintedSlots(new Set([key]));
+    lastPaintedRef.current = { date, time };
+  }
+
+  function handleCellMouseEnter(date: string, time: string) {
+    if (!isDraggingRef.current) return;
+    const last = lastPaintedRef.current;
+    const keys = last
+      ? getSlotKeysInRange(last.date, last.time, date, time, visibleDates, slots)
+      : [`${date}|${time}`];
+    const nextPainted = new Set(paintedSlotsRef.current);
+    for (const k of keys) nextPainted.add(k);
+    paintedSlotsRef.current = nextPainted;
+    setPaintedSlots((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) next.add(k);
+      return next;
+    });
+    lastPaintedRef.current = { date, time };
+  }
 
   async function submitAvailability() {
     if (!name.trim()) {
-      alert("Please enter your name.");
+      alert("Vennligst skriv inn navnet ditt.");
       return;
     }
     const payload = Object.entries(selected)
@@ -135,7 +237,7 @@ export function EventBoard({
       body: JSON.stringify({ slug }),
     });
     if (!res.ok) {
-      alert("Sync failed.");
+      alert("Synkronisering feilet.");
       return;
     }
     const data = (await res.json()) as { blocked: string[] };
@@ -143,144 +245,185 @@ export function EventBoard({
     setBusy(blockedMap);
     setSelected((prev) => {
       const next = { ...prev };
-      for (const key of data.blocked) {
-        delete next[key];
-      }
+      for (const key of data.blocked) delete next[key];
       return next;
     });
   }
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-zinc-200 bg-white p-4">
+      <div className="rounded-lg border border-border bg-card p-4">
+        {/* Controls */}
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Your name"
-            className="rounded-md border border-zinc-300 px-3 py-2"
+            placeholder="Navnet ditt"
+            className="rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
             disabled={readOnly}
           />
-          <button
-            onClick={submitAvailability}
-            disabled={readOnly}
-            className="rounded-md bg-zinc-900 px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Save availability
-          </button>
           {signedInUserId ? (
             <button
               onClick={syncGoogleCalendar}
-              className="rounded-md border border-zinc-300 px-3 py-2 text-sm hover:bg-zinc-100"
+              className="rounded-md border border-border px-3 py-2 text-sm hover:bg-muted"
             >
-              Sync Google Calendar
+              Synkroniser Google Kalender
             </button>
           ) : null}
-          <p className="text-sm text-zinc-500">{saved ? "Saved. You can keep editing." : "Not saved yet."}</p>
+          <p className="text-sm text-muted-foreground">
+            {saved ? "Lagret. Du kan fortsette å redigere." : "Ikke lagret ennå."}
+          </p>
+          <button
+            onClick={submitAvailability}
+            disabled={readOnly}
+            className="ml-auto rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Lagre tilgjengelighet
+          </button>
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
+        <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
           <div className="flex items-center gap-2">
-            <span>Fill mode:</span>
+            <span className="text-muted-foreground">Fyllmodus:</span>
             <button
               onClick={() => setFillMode("AVAILABLE")}
-              className={`rounded-md px-2 py-1 ${fillMode === "AVAILABLE" ? "bg-green-600 text-white" : "bg-zinc-100"}`}
+              className={`rounded px-2 py-1 text-xs font-medium ${fillMode === "AVAILABLE" ? "bg-green-700 text-white" : "bg-muted text-muted-foreground hover:opacity-90"}`}
             >
-              Available
+              Tilgjengelig
             </button>
             <button
               onClick={() => setFillMode("IF_NEEDED")}
-              className={`rounded-md px-2 py-1 ${fillMode === "IF_NEEDED" ? "bg-green-200 text-zinc-900" : "bg-zinc-100"}`}
+              className={`rounded px-2 py-1 text-xs font-medium ${fillMode === "IF_NEEDED" ? "bg-green-300 text-card-foreground" : "bg-muted text-muted-foreground hover:opacity-90"}`}
             >
-              If needed
+              Om nødvendig
             </button>
           </div>
-
-          <label className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-muted-foreground">
             <input
               type="checkbox"
               checked={includeIfNeeded}
               onChange={(e) => setIncludeIfNeeded(e.target.checked)}
             />
-            Include if-needed slots
+            Inkluder "om nødvendig"
           </label>
         </div>
 
-        <div className="mb-2 flex items-center justify-between">
-          <button
-            disabled={page === 0}
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            className="rounded-md border border-zinc-300 px-2 py-1 text-sm disabled:opacity-40"
-          >
-            ← Prev
-          </button>
-          <p className="text-sm text-zinc-500">
-            Showing days {page * 7 + 1}-{Math.min(page * 7 + 7, dates.length)} of {dates.length}
-          </p>
-          <button
-            disabled={page >= pages - 1}
-            onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
-            className="rounded-md border border-zinc-300 px-2 py-1 text-sm disabled:opacity-40"
-          >
-            Next →
-          </button>
-        </div>
+        {/* Pagination */}
+        {pages > 1 && (
+          <div className="mb-3 flex items-center justify-between">
+            <button
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              className="rounded border border-border px-2 py-1 text-sm hover:bg-muted disabled:opacity-40"
+            >
+              ← Forrige
+            </button>
+            <p className="text-xs text-muted-foreground">
+              Dager {page * 7 + 1}–{Math.min(page * 7 + 7, dates.length)} av{" "}
+              {dates.length}
+            </p>
+            <button
+              disabled={page >= pages - 1}
+              onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
+              className="rounded border border-border px-2 py-1 text-sm hover:bg-muted disabled:opacity-40"
+            >
+              Neste →
+            </button>
+          </div>
+        )}
 
-        <div className="overflow-auto">
+        {/* Grid */}
+        <div className="overflow-x-auto">
           <div
-            className="grid min-w-[680px]"
-            style={{ gridTemplateColumns: `120px repeat(${visibleDates.length}, minmax(80px, 1fr))` }}
-            onPointerUp={() => setDragging(false)}
-            onPointerLeave={() => setDragging(false)}
+            className="grid min-w-full select-none gap-0 text-sm"
+            style={{
+              gridTemplateColumns: `56px repeat(${visibleDates.length}, minmax(80px, 1fr))`,
+              gridTemplateRows: `40px repeat(${slots.length}, 32px)`,
+            }}
           >
-            <div className="border-b border-r border-zinc-200 p-2 text-xs font-medium text-zinc-500">Time</div>
-            {visibleDates.map((date) => (
-              <div key={date} className="border-b border-r border-zinc-200 p-2 text-center text-xs font-medium">
-                {date}
-              </div>
-            ))}
-            {slots.map((time) => (
-              <div key={time} className="contents">
-                <div className="border-b border-r border-zinc-200 p-2 text-xs text-zinc-600">{toPrettyTime(time)}</div>
-                {visibleDates.map((date) => {
-                  const key = `${date}|${time}`;
-                  const mine = selected[key];
-                  const people = peopleByCell[key] ?? [];
-                  const tooltip = people.length
-                    ? people.map((p) => `${p.name}: ${p.status === "AVAILABLE" ? "Available" : "If needed"}`).join("\n")
-                    : "No one yet";
-                  const striped = mine === "IF_NEEDED";
-                  const mineStyle = mine === "AVAILABLE" ? "bg-green-600" : striped ? "bg-green-200" : "";
-                  return (
-                    <button
-                      type="button"
-                      key={key}
-                      title={tooltip}
-                      onPointerDown={() => {
-                        setDragging(true);
-                        paintCell(key);
-                      }}
-                      onPointerEnter={() => {
-                        if (dragging) {
-                          paintCell(key);
-                        }
-                      }}
-                      className={`relative h-9 border-b border-r border-zinc-200 transition ${busy[key] ? "bg-zinc-300" : intensity(key)} ${mineStyle}`}
-                    >
-                      {striped ? (
-                        <span
-                          className="absolute inset-0 opacity-35"
-                          style={{
-                            backgroundImage:
-                              "repeating-linear-gradient(135deg, rgba(16,185,129,0.35), rgba(16,185,129,0.35) 6px, transparent 6px, transparent 12px)",
-                          }}
-                        />
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
+            {/* Header */}
+            <div className="border border-border bg-muted p-1 text-xs font-medium text-muted-foreground">
+              Tid
+            </div>
+            {visibleDates.map((date) => {
+              const d = parseISO(date);
+              return (
+                <div
+                  key={date}
+                  className="flex flex-col items-center justify-center border border-border bg-muted p-1 text-center"
+                >
+                  <span className="text-xs font-medium text-card-foreground">
+                    {format(d, "d. MMM", { locale: nb })}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {format(d, "EEE", { locale: nb })}
+                  </span>
+                </div>
+              );
+            })}
+
+            {/* Time rows */}
+            {slots.map((time) => {
+              const [hourStr, minStr] = time.split(":");
+              const isHour = minStr === "00";
+              return (
+                <Fragment key={time}>
+                  <div className="flex items-start border-b border-r border-border bg-muted px-1.5 py-0.5 text-xs leading-none text-muted-foreground">
+                    {isHour ? hourStr : ""}
+                  </div>
+                  {visibleDates.map((date, dateIndex) => {
+                    const key = `${date}|${time}`;
+                    const mine = selected[key];
+                    const isPainted = paintedSlots.has(key);
+                    const isBusy = busy[key];
+
+                    let colorClass = getHeatmapColor(key);
+                    if (isBusy) {
+                      colorClass = "bg-border cursor-not-allowed";
+                    } else if (isPainted) {
+                      colorClass =
+                        fillMode === "AVAILABLE" ? "bg-green-600" : "bg-green-300";
+                    } else if (mine === "AVAILABLE") {
+                      colorClass = "bg-green-600 hover:bg-green-700";
+                    } else if (mine === "IF_NEEDED") {
+                      colorClass = "bg-green-300 hover:bg-green-400";
+                    }
+
+                    const people = peopleByCell[key] ?? [];
+                    const tooltip = people.length
+                      ? people
+                          .map(
+                            (p) =>
+                              `${p.name}: ${p.status === "AVAILABLE" ? "Tilgjengelig" : "Om nødvendig"}`,
+                          )
+                          .join("\n")
+                      : "Ingen ennå";
+
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        title={tooltip}
+                        onMouseDown={() => handleCellMouseDown(date, time)}
+                        onMouseEnter={() => handleCellMouseEnter(date, time)}
+                        disabled={readOnly}
+                        className={`relative block h-full w-full min-w-0 border-b border-r border-border p-0 leading-none transition-colors ${colorClass} ${!readOnly && !isBusy ? "cursor-pointer" : "cursor-default"} ${dateIndex === 0 ? "border-l" : ""}`}
+                      >
+                        {mine === "IF_NEEDED" && !isPainted ? (
+                          <span
+                            className="pointer-events-none absolute inset-0 opacity-40"
+                            style={{
+                              backgroundImage:
+                                "repeating-linear-gradient(135deg, rgba(5,150,105,0.5), rgba(5,150,105,0.5) 4px, transparent 4px, transparent 8px)",
+                            }}
+                          />
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </Fragment>
+              );
+            })}
           </div>
         </div>
       </div>

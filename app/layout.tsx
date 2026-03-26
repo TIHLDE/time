@@ -7,8 +7,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Time Grid",
-  description: "Group scheduling heatmap app",
+  title: "Tidsgitter",
+  description: "Varmekart-app for gruppeplanlegging",
 };
 
 export default function RootLayout({
@@ -18,7 +18,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="nb"
       className={`${inter.className} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
