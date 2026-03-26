@@ -32,10 +32,7 @@ export default async function EventPage({ params }: PageProps) {
     <div className="mx-auto w-full max-w-7xl space-y-4 px-3 py-8 sm:px-8">
       <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold">{event.title}</h1>
-            <p className="text-sm text-muted-foreground">Del denne lenken: {shareUrl}</p>
-          </div>
+          <h1 className="text-2xl font-semibold">{event.title}</h1>
           <Link href="/" className="text-sm text-primary underline">
             Tilbake til forsiden
           </Link>
@@ -45,6 +42,7 @@ export default async function EventPage({ params }: PageProps) {
       <EventBoard
         slug={event.slug}
         eventId={event.id}
+        shareUrl={shareUrl}
         dates={normalizeDates(event.dates)}
         startTime={event.startTime}
         endTime={event.endTime}

@@ -3,7 +3,7 @@
 Fullstack-app for gruppeplanlegging bygget med:
 
 - Next.js 14 App Router + TypeScript + Tailwind CSS
-- NextAuth.js v5 (Google OAuth)
+- NextAuth.js v5 (TIHLDE credentials)
 - Prisma ORM + Vercel Postgres
 - Google Calendar API (skrivebeskyttet synkronisering)
 
@@ -41,15 +41,15 @@ pnpm dev
 
 Åpne [http://localhost:3000](http://localhost:3000).
 
-## Oppsett av Google OAuth
+## Oppsett av Google OAuth (kalender-synk)
 
 - Opprett en OAuth-klient i Google Cloud Console
-- Legg til redirect-URI: `http://localhost:3000/api/auth/callback/google`
+- Legg til redirect-URI: `http://localhost:3000/api/google-calendar/oauth/callback`
 - Legg inn nøkler i `AUTH_GOOGLE_ID` og `AUTH_GOOGLE_SECRET`
 
 For produksjon, legg også til:
 
-- `https://<your-domain>/api/auth/callback/google`
+- `https://<your-domain>/api/google-calendar/oauth/callback`
 
 ## Notater for deploy til Vercel
 

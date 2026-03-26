@@ -85,10 +85,15 @@ export function CreateEventForm() {
   const firstDayOffset = (getDay(monthStart) + 6) % 7;
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 rounded-lg border border-border bg-card p-6 shadow-sm">
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-6 rounded-lg border border-border bg-card p-6 shadow-sm"
+    >
       <div>
         <h1 className="text-xl font-semibold">Nytt arrangement</h1>
-        <p className="text-sm text-muted-foreground">Perfekt for engangs- eller faste møter</p>
+        <p className="text-sm text-muted-foreground">
+          Perfekt for engangs- eller faste møter
+        </p>
       </div>
 
       {/* Title */}
@@ -108,7 +113,9 @@ export function CreateEventForm() {
 
       {/* Time range */}
       <div className="space-y-2">
-        <h2 className="text-sm font-semibold text-card-foreground">Hvilke tider kan passe?</h2>
+        <h2 className="text-sm font-semibold text-card-foreground">
+          Hvilke tider kan passe?
+        </h2>
         <div className="flex items-center gap-3">
           <select
             name="startTime"
@@ -140,8 +147,12 @@ export function CreateEventForm() {
 
       {/* Calendar date picker */}
       <div className="space-y-2">
-        <h2 className="text-sm font-semibold text-card-foreground">Hvilke datoer kan passe?</h2>
-        <p className="text-xs text-muted-foreground">Dra for å velge flere datoer</p>
+        <h2 className="text-sm font-semibold text-card-foreground">
+          Hvilke datoer kan passe?
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          Dra for å velge flere datoer
+        </p>
 
         <div
           className="select-none rounded-md border border-border p-4"
@@ -171,7 +182,7 @@ export function CreateEventForm() {
           </div>
 
           {/* Weekday headers */}
-          <div className="mb-1 grid grid-cols-7 text-center text-xs font-medium text-muted-foreground">
+          <div className="mb-1 grid grid-cols-7 gap-1 text-center text-xs font-medium text-muted-foreground">
             {["M", "T", "O", "T", "F", "L", "S"].map((d, i) => (
               <div key={i} className="py-1">
                 {d}
@@ -180,7 +191,7 @@ export function CreateEventForm() {
           </div>
 
           {/* Day cells */}
-          <div className="grid grid-cols-7">
+          <div className="grid grid-cols-7 gap-1">
             {Array.from({ length: firstDayOffset }, (_, i) => (
               <div key={`empty-${i}`} />
             ))}

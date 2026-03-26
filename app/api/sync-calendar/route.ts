@@ -48,12 +48,69 @@ export async function POST(req: Request) {
   url.searchParams.set("singleEvents", "true");
   url.searchParams.set("orderBy", "startTime");
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${user.googleAccessToken}`,
-    },
-    cache: "no-store",
-  });
+  async function fetchGoogleEvents(accessToken: string) {
+    return fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      cache: "no-store",
+    });
+  }
+
+  let response = await fetchGoogleEvents(user.googleAccessToken);
+
+  // Token can expire between connect and sync; refresh once and retry.
+  if (!response.ok && (response.status === 401 || response.status === 403)) {
+    if (!user.googleRefreshToken) {
+      return NextResponse.json({ error: "Fant ikke Google-token" }, { status: 400 });
+    }
+
+    const googleClientId = process.env.AUTH_GOOGLE_ID;
+    const googleClientSecret = process.env.AUTH_GOOGLE_SECRET;
+    if (!googleClientId || !googleClientSecret) {
+      return NextResponse.json(
+        { error: "Google OAuth er ikke konfigurert" },
+        { status: 500 },
+      );
+    }
+
+    const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: googleClientId,
+        client_secret: googleClientSecret,
+        refresh_token: user.googleRefreshToken,
+        grant_type: "refresh_token",
+      }).toString(),
+    });
+
+    if (!refreshRes.ok) {
+      return NextResponse.json(
+        { error: "Kunne ikke oppdatere Google-token" },
+        { status: 400 },
+      );
+    }
+
+    const refreshData = (await refreshRes.json()) as {
+      access_token?: string;
+    };
+    if (!refreshData.access_token) {
+      return NextResponse.json(
+        { error: "Kunne ikke oppdatere Google-token" },
+        { status: 400 },
+      );
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        googleAccessToken: refreshData.access_token,
+      },
+    });
+
+    response = await fetchGoogleEvents(refreshData.access_token);
+  }
 
   if (!response.ok) {
     return NextResponse.json(

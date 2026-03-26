@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { nb } from "date-fns/locale";
+import Link from "next/link";
 import type { SlotStatus } from "@prisma/client";
 import { buildTimeSlots } from "@/lib/time";
 import { saveAvailability } from "@/app/actions";
@@ -17,6 +18,7 @@ type ParticipantSeed = {
 type EventBoardProps = {
   slug: string;
   eventId: string;
+  shareUrl: string;
   dates: string[];
   startTime: string;
   endTime: string;
@@ -29,18 +31,22 @@ type EventBoardProps = {
 
 type FillMode = "AVAILABLE" | "IF_NEEDED";
 
+type CellVisual = "empty" | "green" | "yellow" | "red";
+
+type DragAction = "add_available" | "remove" | "add_if_needed";
+
 function getSlotKeysInRange(
   date1: string,
   time1: string,
   date2: string,
   time2: string,
   visibleDates: string[],
-  slots: string[],
+  slotTimes: string[],
 ): string[] {
   const d1 = visibleDates.indexOf(date1);
   const d2 = visibleDates.indexOf(date2);
-  const t1 = slots.indexOf(time1);
-  const t2 = slots.indexOf(time2);
+  const t1 = slotTimes.indexOf(time1);
+  const t2 = slotTimes.indexOf(time2);
   const minD = Math.min(d1, d2);
   const maxD = Math.max(d1, d2);
   const minT = Math.min(t1, t2);
@@ -48,14 +54,38 @@ function getSlotKeysInRange(
   const keys: string[] = [];
   for (let d = minD; d <= maxD; d++) {
     for (let t = minT; t <= maxT; t++) {
-      keys.push(`${visibleDates[d]}|${slots[t]}`);
+      keys.push(`${visibleDates[d]}|${slotTimes[t]}`);
     }
   }
   return keys;
 }
 
+function getCellVisual(
+  key: string,
+  selected: Record<string, SlotStatus>,
+  isEditing: boolean,
+): CellVisual {
+  const s = selected[key];
+  if (s === "AVAILABLE") return "green";
+  if (s === "IF_NEEDED") return "yellow";
+  if (isEditing) return "red";
+  return "empty";
+}
+
+function resolveDragAction(
+  mode: FillMode,
+  visual: CellVisual,
+): DragAction | null {
+  if (visual === "empty") return null;
+  if (mode === "AVAILABLE") {
+    return visual === "green" ? "remove" : "add_available";
+  }
+  return visual === "yellow" ? "remove" : "add_if_needed";
+}
+
 export function EventBoard({
   slug,
+  shareUrl,
   dates,
   startTime,
   endTime,
@@ -65,21 +95,31 @@ export function EventBoard({
   signedInUserName,
   participants,
 }: EventBoardProps) {
-  const [name, setName] = useState("");
   const [participantId, setParticipantId] = useState<string | undefined>();
+  const [loadedParticipantName, setLoadedParticipantName] = useState<
+    string | undefined
+  >();
   const [saved, setSaved] = useState(false);
   const [fillMode, setFillMode] = useState<FillMode>("AVAILABLE");
-  const [includeIfNeeded, setIncludeIfNeeded] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
   const [selected, setSelected] = useState<Record<string, SlotStatus>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [paintedSlots, setPaintedSlots] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [fillingWave, setFillingWave] = useState(false);
+
+  const displayName =
+    signedInUserName?.trim() || loadedParticipantName?.trim() || "";
 
   const isDraggingRef = useRef(false);
   const paintedSlotsRef = useRef<Set<string>>(new Set());
   const lastPaintedRef = useRef<{ date: string; time: string } | null>(null);
+  const dragActionRef = useRef<DragAction | null>(null);
   const fillModeRef = useRef<FillMode>(fillMode);
   const busyRef = useRef(busy);
+  const isEditingRef = useRef(isEditing);
+  const selectedRef = useRef(selected);
 
   useEffect(() => {
     fillModeRef.current = fillMode;
@@ -87,8 +127,18 @@ export function EventBoard({
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
+  useEffect(() => {
+    isEditingRef.current = isEditing;
+  }, [isEditing]);
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
 
   const readOnly = Boolean(deadline && new Date() > new Date(deadline));
+  const canParticipate = Boolean(signedInUserId && signedInUserName?.trim());
+  const othersHaveSlots = participants.some((p) => p.slots.length > 0);
+  const showHeatmap =
+    saved || (!canParticipate && othersHaveSlots);
   const slots = useMemo(
     () => buildTimeSlots(startTime, endTime, slotDuration),
     [startTime, endTime, slotDuration],
@@ -102,12 +152,15 @@ export function EventBoard({
     const byAccount = signedInUserId
       ? participants.find((p) => p.userId === signedInUserId)
       : undefined;
-    const byStored = stored ? participants.find((p) => p.id === stored) : undefined;
+    const byStored = stored
+      ? participants.find((p) => p.id === stored)
+      : undefined;
     const picked = byAccount ?? byStored;
     if (!picked) return;
     setParticipantId(picked.id);
-    setName(picked.name);
+    setLoadedParticipantName(picked.name);
     setSaved(true);
+    setIsEditing(true);
     setSelected(
       Object.fromEntries(
         picked.slots.map((slot) => [`${slot.date}|${slot.time}`, slot.status]),
@@ -116,19 +169,16 @@ export function EventBoard({
   }, [participants, signedInUserId, slug]);
 
   useEffect(() => {
-    if (!signedInUserName) return;
-    setName((prev) => prev || signedInUserName);
-  }, [signedInUserName]);
-
-  useEffect(() => {
     const onMouseUp = () => {
       if (!isDraggingRef.current) return;
       isDraggingRef.current = false;
+      const action = dragActionRef.current;
+      dragActionRef.current = null;
       const toPaint = new Set(paintedSlotsRef.current);
       paintedSlotsRef.current = new Set();
       lastPaintedRef.current = null;
 
-      if (toPaint.size === 0) {
+      if (!action || toPaint.size === 0) {
         setPaintedSlots(new Set());
         return;
       }
@@ -136,8 +186,13 @@ export function EventBoard({
       setSelected((prev) => {
         const next = { ...prev };
         for (const key of toPaint) {
-          if (!busyRef.current[key]) {
-            next[key] = fillModeRef.current;
+          if (busyRef.current[key]) continue;
+          if (action === "remove") {
+            delete next[key];
+          } else if (action === "add_available") {
+            next[key] = "AVAILABLE";
+          } else {
+            next[key] = "IF_NEEDED";
           }
         }
         return next;
@@ -158,33 +213,107 @@ export function EventBoard({
         map[key].push({ name: participant.name, status: slot.status });
       }
     }
-    if (name) {
+    if (displayName) {
       for (const [key, status] of Object.entries(selected)) {
         map[key] = [
-          ...(map[key] ?? []).filter((r) => r.name !== name),
-          { name, status },
+          ...(map[key] ?? []).filter((r) => r.name !== displayName),
+          { name: displayName, status },
         ];
       }
     }
     return map;
-  }, [participants, selected, name]);
+  }, [participants, selected, displayName]);
+
+  const heatmapMaxCount = useMemo(() => {
+    let max = 0;
+    for (const date of visibleDates) {
+      for (const time of slots) {
+        const key = `${date}|${time}`;
+        const list = peopleByCell[key] ?? [];
+        const availableCount = list.filter((e) => e.status === "AVAILABLE").length;
+        const ifNeededCount = list.filter((e) => e.status === "IF_NEEDED").length;
+        const totalCount = availableCount + ifNeededCount;
+        max = Math.max(max, totalCount);
+      }
+    }
+    return max;
+  }, [visibleDates, slots, peopleByCell]);
 
   function getHeatmapColor(key: string): string {
     const list = peopleByCell[key] ?? [];
-    const count = list.filter((e) =>
-      includeIfNeeded ? true : e.status === "AVAILABLE",
-    ).length;
-    if (count === 0) return "bg-card hover:bg-muted";
-    if (count === 1) return "bg-green-200 hover:bg-green-300";
-    if (count === 2) return "bg-green-300 hover:bg-green-400";
-    if (count === 3) return "bg-green-400 hover:bg-green-500";
-    return "bg-green-500 hover:bg-green-600";
+    const availableCount = list.filter((e) => e.status === "AVAILABLE").length;
+    const ifNeededCount = list.filter((e) => e.status === "IF_NEEDED").length;
+
+    const green = (count: number) => {
+      if (count === 1) return "bg-green-200 hover:bg-green-300";
+      if (count === 2) return "bg-green-300 hover:bg-green-400";
+      if (count === 3) return "bg-green-400 hover:bg-green-500";
+      return "bg-green-500 hover:bg-green-600";
+    };
+    const yellow = (count: number) => {
+      if (count === 1) return "bg-yellow-200 hover:bg-yellow-300";
+      if (count === 2) return "bg-yellow-300 hover:bg-yellow-400";
+      if (count === 3) return "bg-yellow-400 hover:bg-yellow-500";
+      return "bg-yellow-500 hover:bg-yellow-600";
+    };
+
+    const totalCount = availableCount + ifNeededCount;
+    if (heatmapMaxCount > 0 && totalCount === heatmapMaxCount) {
+      return green(totalCount);
+    }
+
+    if (availableCount === 0 && ifNeededCount > 0) return yellow(ifNeededCount);
+    if (ifNeededCount === 0 && availableCount > 0) return green(availableCount);
+
+    const dominantIfNeeded = ifNeededCount > availableCount;
+    const dominantCount = Math.max(availableCount, ifNeededCount);
+    return dominantIfNeeded ? yellow(dominantCount) : green(dominantCount);
+  }
+
+  function previewClassForPaint(): string {
+    const action = dragActionRef.current;
+    if (!action) return "bg-muted";
+    if (action === "remove") return "bg-red-500";
+    if (action === "add_available") return "bg-green-500";
+    return "bg-yellow-400";
+  }
+
+  function cellBackgroundClass(args: {
+    key: string;
+    mine: SlotStatus | undefined;
+    isPainted: boolean;
+    isBusy: boolean;
+  }): string {
+    const { key, mine, isPainted, isBusy } = args;
+    if (isBusy) return "bg-border cursor-not-allowed";
+    if (isPainted) return `${previewClassForPaint()} cursor-pointer`;
+
+    if (mine === "AVAILABLE") return "bg-green-500 hover:bg-green-600";
+    if (mine === "IF_NEEDED")
+      return "bg-yellow-400 hover:bg-yellow-500 relative";
+
+    if (isEditing) return "bg-red-500 hover:bg-red-600";
+
+    if (showHeatmap) return getHeatmapColor(key);
+
+    return "bg-muted/80 hover:bg-muted";
   }
 
   function handleCellMouseDown(date: string, time: string) {
-    if (readOnly) return;
+    if (readOnly || !canParticipate) return;
     const key = `${date}|${time}`;
     if (busyRef.current[key]) return;
+    if (!isEditingRef.current) return;
+
+    const visual = getCellVisual(
+      key,
+      selectedRef.current,
+      isEditingRef.current,
+    );
+    const action = resolveDragAction(fillModeRef.current, visual);
+    if (!action) return;
+
+    dragActionRef.current = action;
     isDraggingRef.current = true;
     paintedSlotsRef.current = new Set([key]);
     setPaintedSlots(new Set([key]));
@@ -192,10 +321,17 @@ export function EventBoard({
   }
 
   function handleCellMouseEnter(date: string, time: string) {
-    if (!isDraggingRef.current) return;
+    if (!isDraggingRef.current || !dragActionRef.current) return;
     const last = lastPaintedRef.current;
     const keys = last
-      ? getSlotKeysInRange(last.date, last.time, date, time, visibleDates, slots)
+      ? getSlotKeysInRange(
+          last.date,
+          last.time,
+          date,
+          time,
+          visibleDates,
+          slots,
+        )
       : [`${date}|${time}`];
     const nextPainted = new Set(paintedSlotsRef.current);
     for (const k of keys) nextPainted.add(k);
@@ -208,11 +344,49 @@ export function EventBoard({
     lastPaintedRef.current = { date, time };
   }
 
-  async function submitAvailability() {
-    if (!name.trim()) {
-      alert("Vennligst skriv inn navnet ditt.");
+  function addAvailability() {
+    if (!canParticipate || readOnly) return;
+    const next: Record<string, SlotStatus> = { ...selected };
+    for (const d of dates) {
+      for (const t of slots) {
+        const key = `${d}|${t}`;
+        if (!busy[key]) next[key] = "AVAILABLE";
+      }
+    }
+    setFillingWave(true);
+    setSelected(next);
+    setIsEditing(true);
+    const maxDelay =
+      (Math.max(visibleDates.length, 1) + Math.max(slots.length, 1)) * 15 + 220;
+    window.setTimeout(() => setFillingWave(false), maxDelay);
+  }
+
+  async function copyShareLink() {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      alert("Kunne ikke kopiere lenken.");
+    }
+  }
+
+  function handlePrimaryAvailabilityClick() {
+    if (!isEditing) {
+      addAvailability();
       return;
     }
+    void submitAvailability();
+  }
+
+  const primaryButtonLabel = !isEditing
+    ? "Legg til tilgjengelighet"
+    : saved
+      ? "Endre tilgjengelighet"
+      : "Lagre tilgjengelighet";
+
+  async function submitAvailability() {
+    if (!signedInUserName?.trim()) return;
     const payload = Object.entries(selected)
       .filter(([key]) => !busy[key])
       .map(([key, status]) => {
@@ -222,7 +396,7 @@ export function EventBoard({
     const res = await saveAvailability({
       eventSlug: slug,
       participantId,
-      participantName: name.trim(),
+      participantName: signedInUserName.trim(),
       slots: payload,
     });
     localStorage.setItem(`participant_${slug}`, res.participantId);
@@ -236,6 +410,14 @@ export function EventBoard({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ slug }),
     });
+
+    if (res.status === 400) {
+      window.location.assign(
+        `/api/google-calendar/connect?returnTo=${encodeURIComponent(`/event/${slug}`)}`,
+      );
+      return;
+    }
+
     if (!res.ok) {
       alert("Synkronisering feilet.");
       return;
@@ -252,18 +434,33 @@ export function EventBoard({
 
   return (
     <div className="space-y-4">
+      {!canParticipate ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          <p className="font-medium">Logg inn for å fylle ut tilgjengelighet</p>
+          <p className="mt-1 text-amber-900/80 dark:text-amber-200/90">
+            Du må være innlogget for å legge inn tider og lagre.
+          </p>
+          <Link
+            href="/"
+            className="mt-2 inline-block text-sm font-medium text-primary underline"
+          >
+            Gå til innlogging
+          </Link>
+        </div>
+      ) : null}
+
       <div className="rounded-lg border border-border bg-card p-4">
-        {/* Controls */}
         <div className="mb-3 flex flex-wrap items-center gap-3">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Navnet ditt"
-            className="rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
-            disabled={readOnly}
-          />
+          <button
+            type="button"
+            onClick={copyShareLink}
+            className="rounded-md border border-border bg-card px-3 py-2 text-sm hover:bg-muted"
+          >
+            {copied ? "Kopiert!" : "Del lenke"}
+          </button>
           {signedInUserId ? (
             <button
+              type="button"
               onClick={syncGoogleCalendar}
               className="rounded-md border border-border px-3 py-2 text-sm hover:bg-muted"
             >
@@ -271,47 +468,24 @@ export function EventBoard({
             </button>
           ) : null}
           <p className="text-sm text-muted-foreground">
-            {saved ? "Lagret. Du kan fortsette å redigere." : "Ikke lagret ennå."}
+            {saved
+              ? "Lagret. Du kan fortsette å redigere."
+              : "Ikke lagret ennå."}
           </p>
           <button
-            onClick={submitAvailability}
-            disabled={readOnly}
+            type="button"
+            onClick={handlePrimaryAvailabilityClick}
+            disabled={readOnly || !canParticipate}
             className="ml-auto rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Lagre tilgjengelighet
+            {primaryButtonLabel}
           </button>
         </div>
 
-        <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Fyllmodus:</span>
-            <button
-              onClick={() => setFillMode("AVAILABLE")}
-              className={`rounded px-2 py-1 text-xs font-medium ${fillMode === "AVAILABLE" ? "bg-green-700 text-white" : "bg-muted text-muted-foreground hover:opacity-90"}`}
-            >
-              Tilgjengelig
-            </button>
-            <button
-              onClick={() => setFillMode("IF_NEEDED")}
-              className={`rounded px-2 py-1 text-xs font-medium ${fillMode === "IF_NEEDED" ? "bg-green-300 text-card-foreground" : "bg-muted text-muted-foreground hover:opacity-90"}`}
-            >
-              Om nødvendig
-            </button>
-          </div>
-          <label className="flex items-center gap-2 text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={includeIfNeeded}
-              onChange={(e) => setIncludeIfNeeded(e.target.checked)}
-            />
-            Inkluder "om nødvendig"
-          </label>
-        </div>
-
-        {/* Pagination */}
         {pages > 1 && (
           <div className="mb-3 flex items-center justify-between">
             <button
+              type="button"
               disabled={page === 0}
               onClick={() => setPage((p) => Math.max(0, p - 1))}
               className="rounded border border-border px-2 py-1 text-sm hover:bg-muted disabled:opacity-40"
@@ -323,6 +497,7 @@ export function EventBoard({
               {dates.length}
             </p>
             <button
+              type="button"
               disabled={page >= pages - 1}
               onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
               className="rounded border border-border px-2 py-1 text-sm hover:bg-muted disabled:opacity-40"
@@ -332,98 +507,137 @@ export function EventBoard({
           </div>
         )}
 
-        {/* Grid */}
-        <div className="overflow-x-auto">
-          <div
-            className="grid min-w-full select-none gap-0 text-sm"
-            style={{
-              gridTemplateColumns: `56px repeat(${visibleDates.length}, minmax(80px, 1fr))`,
-              gridTemplateRows: `40px repeat(${slots.length}, 32px)`,
-            }}
-          >
-            {/* Header */}
-            <div className="border border-border bg-muted p-1 text-xs font-medium text-muted-foreground">
-              Tid
-            </div>
-            {visibleDates.map((date) => {
-              const d = parseISO(date);
-              return (
-                <div
-                  key={date}
-                  className="flex flex-col items-center justify-center border border-border bg-muted p-1 text-center"
-                >
-                  <span className="text-xs font-medium text-card-foreground">
-                    {format(d, "d. MMM", { locale: nb })}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {format(d, "EEE", { locale: nb })}
-                  </span>
-                </div>
-              );
-            })}
-
-            {/* Time rows */}
-            {slots.map((time) => {
-              const [hourStr, minStr] = time.split(":");
-              const isHour = minStr === "00";
-              return (
-                <Fragment key={time}>
-                  <div className="flex items-start border-b border-r border-border bg-muted px-1.5 py-0.5 text-xs leading-none text-muted-foreground">
-                    {isHour ? hourStr : ""}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+          <div className="min-w-0 flex-1 overflow-x-auto">
+            <div
+              className="grid min-w-full select-none gap-0 text-sm"
+              style={{
+                gridTemplateColumns: `56px repeat(${visibleDates.length}, minmax(80px, 1fr))`,
+                gridTemplateRows: `40px repeat(${slots.length}, 32px)`,
+              }}
+            >
+              <div className="border border-border bg-muted p-1 text-xs font-medium text-muted-foreground">
+                Tid
+              </div>
+              {visibleDates.map((date) => {
+                const d = parseISO(date);
+                return (
+                  <div
+                    key={date}
+                    className="flex flex-col items-center justify-center border border-border bg-muted p-1 text-center"
+                  >
+                    <span className="text-xs font-medium text-card-foreground">
+                      {format(d, "d. MMM", { locale: nb })}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {format(d, "EEE", { locale: nb })}
+                    </span>
                   </div>
-                  {visibleDates.map((date, dateIndex) => {
-                    const key = `${date}|${time}`;
-                    const mine = selected[key];
-                    const isPainted = paintedSlots.has(key);
-                    const isBusy = busy[key];
+                );
+              })}
 
-                    let colorClass = getHeatmapColor(key);
-                    if (isBusy) {
-                      colorClass = "bg-border cursor-not-allowed";
-                    } else if (isPainted) {
-                      colorClass =
-                        fillMode === "AVAILABLE" ? "bg-green-600" : "bg-green-300";
-                    } else if (mine === "AVAILABLE") {
-                      colorClass = "bg-green-600 hover:bg-green-700";
-                    } else if (mine === "IF_NEEDED") {
-                      colorClass = "bg-green-300 hover:bg-green-400";
-                    }
+              {slots.map((time, timeIdx) => {
+                const [hourStr, minStr] = time.split(":");
+                const isHour = minStr === "00";
+                return (
+                  <Fragment key={time}>
+                    <div className="flex items-start border-b border-r border-border bg-muted px-1.5 py-0.5 text-xs leading-none text-muted-foreground">
+                      {isHour ? hourStr : ""}
+                    </div>
+                    {visibleDates.map((date, dateIndex) => {
+                      const key = `${date}|${time}`;
+                      const mine = selected[key];
+                      const isPainted = paintedSlots.has(key);
+                      const isBusy = busy[key];
 
-                    const people = peopleByCell[key] ?? [];
-                    const tooltip = people.length
-                      ? people
-                          .map(
-                            (p) =>
-                              `${p.name}: ${p.status === "AVAILABLE" ? "Tilgjengelig" : "Om nødvendig"}`,
-                          )
-                          .join("\n")
-                      : "Ingen ennå";
+                      const staggerMs =
+                        fillingWave && canParticipate
+                          ? (dateIndex + timeIdx) * 15
+                          : 0;
+                      const transitionStyle = fillingWave
+                        ? {
+                            transition: "background-color 200ms ease-out",
+                            transitionDelay: `${staggerMs}ms`,
+                          }
+                        : undefined;
 
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        title={tooltip}
-                        onMouseDown={() => handleCellMouseDown(date, time)}
-                        onMouseEnter={() => handleCellMouseEnter(date, time)}
-                        disabled={readOnly}
-                        className={`relative block h-full w-full min-w-0 border-b border-r border-border p-0 leading-none transition-colors ${colorClass} ${!readOnly && !isBusy ? "cursor-pointer" : "cursor-default"} ${dateIndex === 0 ? "border-l" : ""}`}
-                      >
-                        {mine === "IF_NEEDED" && !isPainted ? (
-                          <span
-                            className="pointer-events-none absolute inset-0 opacity-40"
-                            style={{
-                              backgroundImage:
-                                "repeating-linear-gradient(135deg, rgba(5,150,105,0.5), rgba(5,150,105,0.5) 4px, transparent 4px, transparent 8px)",
-                            }}
-                          />
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </Fragment>
-              );
-            })}
+                      const colorClass = cellBackgroundClass({
+                        key,
+                        mine,
+                        isPainted,
+                        isBusy,
+                      });
+
+                      const people = peopleByCell[key] ?? [];
+                      const tooltip = people.length
+                        ? people
+                            .map(
+                              (p) =>
+                                `${p.name}: ${p.status === "AVAILABLE" ? "Tilgjengelig" : "Om nødvendig"}`,
+                            )
+                            .join("\n")
+                        : "Ingen ennå";
+
+                      const interactive =
+                        !readOnly && canParticipate && isEditing && !isBusy;
+
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          title={tooltip}
+                          style={transitionStyle}
+                          onMouseDown={() => handleCellMouseDown(date, time)}
+                          onMouseEnter={() => handleCellMouseEnter(date, time)}
+                          disabled={!interactive}
+                          className={`relative block h-full w-full min-w-0 border-b border-r border-border p-0 leading-none ${colorClass} ${interactive ? "cursor-pointer" : "cursor-default"} ${dateIndex === 0 ? "border-l" : ""}`}
+                        >
+                          {mine === "IF_NEEDED" && !isPainted ? (
+                            <span
+                              className="pointer-events-none absolute inset-0 opacity-40"
+                              style={{
+                                backgroundImage:
+                                  "repeating-linear-gradient(135deg, rgba(234,179,8,0.55), rgba(234,179,8,0.55) 4px, transparent 4px, transparent 8px)",
+                              }}
+                            />
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
+            </div>
+          </div>
+
+          <div
+            className="flex shrink-0 flex-row items-center justify-center gap-2 border border-border bg-muted/40 p-3 lg:w-44 lg:flex-col lg:justify-start"
+            role="group"
+            aria-label="Fyllmodus"
+          >
+            <span className="text-xs font-medium text-muted-foreground lg:mb-1">
+              Modus
+            </span>
+            <div className="flex flex-row gap-2 lg:flex-col lg:gap-3">
+              <button
+                type="button"
+                onClick={() => setFillMode("AVAILABLE")}
+                disabled={!canParticipate || readOnly}
+                className={`flex min-h-[72px] flex-1 flex-col items-center justify-center rounded-md border-2 px-3 py-2 text-center text-xs font-medium transition-colors lg:w-full ${fillMode === "AVAILABLE" ? "border-green-600 bg-green-600 text-white" : "border-border bg-card text-card-foreground hover:bg-muted"}`}
+              >
+                <span className="mb-1 h-3 w-3 rounded-full bg-green-500 ring-2 ring-green-700/30" />
+                Tilgjengelig
+              </button>
+              <button
+                type="button"
+                onClick={() => setFillMode("IF_NEEDED")}
+                disabled={!canParticipate || readOnly}
+                className={`flex min-h-[72px] flex-1 flex-col items-center justify-center rounded-md border-2 px-3 py-2 text-center text-xs font-medium transition-colors lg:w-full ${fillMode === "IF_NEEDED" ? "border-yellow-500 bg-yellow-400 text-yellow-950" : "border-border bg-card text-card-foreground hover:bg-muted"}`}
+              >
+                <span className="mb-1 h-3 w-3 rounded-full bg-yellow-400 ring-2 ring-yellow-600/30" />
+                Om nødvendig
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -27,29 +27,16 @@ export async function AuthButtons() {
   }
 
   return (
-    <div className="w-full space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
-      <form
-        action={async () => {
-          "use server";
-          await signIn("google");
-        }}
-      >
-        <button
-          type="submit"
-          className="w-full rounded-md bg-primary px-3 py-2.5 text-sm text-primary-foreground hover:opacity-90"
-        >
-          Logg inn med Google
-        </button>
-      </form>
-
-      <div className="flex items-center gap-3">
-        <div className="h-px flex-1 bg-border" />
-        <span className="text-xs uppercase tracking-wide text-muted-foreground">eller</span>
-        <div className="h-px flex-1 bg-border" />
-      </div>
+    <div className="w-full rounded-xl border border-border bg-card p-6 shadow-sm">
+      <header className="space-y-1">
+        <h2 className="text-2xl font-semibold tracking-tight">Logg inn</h2>
+        <p className="text-sm text-muted-foreground">
+          Logg inn med ditt TIHLDE brukernavn og passord
+        </p>
+      </header>
 
       <form
-        className="space-y-2.5"
+        className="mt-6 space-y-4"
         action={async (formData) => {
           "use server";
           const user_id = String(formData.get("user_id") ?? "");
@@ -64,27 +51,50 @@ export async function AuthButtons() {
           }
         }}
       >
-        <input
-          name="user_id"
-          type="text"
-          placeholder="TIHLDE-brukernavn"
-          required
-          className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
-        />
-        <input
-          name="password"
-          type="password"
-          placeholder="Passord"
-          required
-          className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
-        />
+        <div className="space-y-1.5">
+          <label htmlFor="user_id" className="text-sm font-medium">
+            Brukernavn <span className="text-red-300">*</span>
+          </label>
+          <input
+            id="user_id"
+            name="user_id"
+            type="text"
+            placeholder="Skriv her..."
+            required
+            className="w-full rounded-md border border-border bg-card px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="password" className="text-sm font-medium">
+            Passord <span className="text-red-300">*</span>
+          </label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            placeholder="Skriv her..."
+            required
+            className="w-full rounded-md border border-border bg-card px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+          />
+        </div>
+
         <button
           type="submit"
-          className="w-full rounded-md border border-border px-3 py-2.5 text-sm hover:bg-muted"
+          className="w-full rounded-md bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Logg inn med TIHLDE
+          Logg inn
         </button>
       </form>
+
+      <div className="mt-6 flex items-center justify-between text-sm text-muted-foreground">
+        <span className="select-none cursor-not-allowed opacity-70" aria-disabled="true">
+          Glemt passord?
+        </span>
+        <span className="select-none cursor-not-allowed opacity-70" aria-disabled="true">
+          Opprett bruker
+        </span>
+      </div>
     </div>
   );
 }

@@ -1,5 +1,4 @@
 import NextAuth from "next-auth";
-import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
 
@@ -25,16 +24,6 @@ declare module "next-auth/jwt" {
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
-    Google({
-      authorization: {
-        params: {
-          scope:
-            "openid email profile https://www.googleapis.com/auth/calendar.readonly",
-          access_type: "offline",
-          prompt: "consent",
-        },
-      },
-    }),
     Credentials({
       name: "TIHLDE",
       credentials: {
@@ -124,27 +113,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     strategy: "jwt",
   },
   callbacks: {
-    async jwt({ token, user, account, profile }) {
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id;
-      }
-      if (account?.provider === "google" && profile?.email) {
-        const email = profile.email as string;
-        const dbUser = await prisma.user.upsert({
-          where: { email },
-          update: {
-            name: (profile.name as string) ?? undefined,
-            googleAccessToken: account.access_token ?? undefined,
-            googleRefreshToken: account.refresh_token ?? undefined,
-          },
-          create: {
-            email,
-            name: (profile.name as string) ?? email,
-            googleAccessToken: account.access_token ?? undefined,
-            googleRefreshToken: account.refresh_token ?? undefined,
-          },
-        });
-        token.id = dbUser.id;
       }
       return token;
     },

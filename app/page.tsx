@@ -86,7 +86,7 @@ export default async function Home({ searchParams }: HomeProps) {
           </div>
         ) : null}
       </main>
-      <div className="mx-auto mt-8 w-full max-w-xs">
+      <div className="mx-auto mt-8 w-full max-w-lg">
         {hasCredentialsError ? (
           <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             Ugyldig TIHLDE-brukernavn eller passord.
@@ -96,7 +96,7 @@ export default async function Home({ searchParams }: HomeProps) {
       </div>
       {!session?.user ? (
         <p className="mt-4 text-center text-sm text-muted-foreground">
-          Logg inn med Google eller TIHLDE for å opprette arrangementer.
+          Logg inn med TIHLDE for å opprette arrangementer.
         </p>
       ) : null}
     </div>
