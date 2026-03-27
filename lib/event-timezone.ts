@@ -1,4 +1,3 @@
-import { addDays, format, parse } from "date-fns";
 import { toDate } from "date-fns-tz";
 
 export function getEventTimezone(): string {
@@ -29,36 +28,6 @@ export function intervalsOverlap(
   bEnd: Date,
 ): boolean {
   return aStart < bEnd && bStart < aEnd;
-}
-
-/** [dayStart, nextDayStart) in absolute time for the given calendar date in `timeZone`. */
-export function getDayBoundsUtc(
-  dateStr: string,
-  timeZone: string = getEventTimezone(),
-): { dayStart: Date; nextDayStart: Date } {
-  const dayStart = toDate(`${dateStr}T00:00:00`, { timeZone });
-  const nextCal = addDays(parse(dateStr, "yyyy-MM-dd", new Date(0)), 1);
-  const nextStr = format(nextCal, "yyyy-MM-dd");
-  const nextDayStart = toDate(`${nextStr}T00:00:00`, { timeZone });
-  return { dayStart, nextDayStart };
-}
-
-/**
- * Clip [eventStart, eventEnd) to the calendar day `dateStr` in `timeZone`, or null if no overlap.
- */
-export function clipEventToCalendarDay(
-  eventStart: Date,
-  eventEnd: Date,
-  dateStr: string,
-  timeZone: string = getEventTimezone(),
-): { start: Date; end: Date } | null {
-  const { dayStart, nextDayStart } = getDayBoundsUtc(dateStr, timeZone);
-  const clippedStart =
-    eventStart.getTime() > dayStart.getTime() ? eventStart : dayStart;
-  const clippedEnd =
-    eventEnd.getTime() < nextDayStart.getTime() ? eventEnd : nextDayStart;
-  if (clippedStart.getTime() >= clippedEnd.getTime()) return null;
-  return { start: clippedStart, end: clippedEnd };
 }
 
 /**
