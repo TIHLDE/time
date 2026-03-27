@@ -18,6 +18,14 @@ type GoogleEvent = {
   end?: { dateTime?: string; date?: string };
 };
 
+type GoogleApiError = {
+  error?: {
+    code?: number;
+    message?: string;
+    status?: string;
+  };
+};
+
 function parseGoogleEventRange(
   item: GoogleEvent,
   timeZone: string,
@@ -147,8 +155,34 @@ export async function POST(req: Request) {
     }
 
     if (!response.ok) {
+      let googleMessage = "";
+      try {
+        const googleErr = (await response.json()) as GoogleApiError;
+        googleMessage =
+          googleErr.error?.message?.trim() ||
+          googleErr.error?.status?.trim() ||
+          "";
+      } catch {
+        googleMessage = "";
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        return NextResponse.json(
+          {
+            error:
+              googleMessage ||
+              "Google-tilgang er ugyldig eller mangler rettigheter. Koble kalenderen til på nytt.",
+          },
+          { status: 400 },
+        );
+      }
+
       return NextResponse.json(
-        { error: "Kunne ikke hente Google-hendelser" },
+        {
+          error: googleMessage
+            ? `Kunne ikke hente Google-hendelser: ${googleMessage}`
+            : "Kunne ikke hente Google-hendelser",
+        },
         { status: 500 },
       );
     }
