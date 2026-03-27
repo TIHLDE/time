@@ -132,7 +132,9 @@ export function EventBoard({
   const [persistedSelected, setPersistedSelected] = useState<
     Record<string, SlotStatus>
   >({});
-  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [calendarUnavailable, setCalendarUnavailable] = useState<
+    Record<string, boolean>
+  >({});
   const [calendarEvents, setCalendarEvents] = useState<SyncCalendarEvent[]>(
     [],
   );
@@ -155,15 +157,11 @@ export function EventBoard({
   const lastPaintedRef = useRef<{ date: string; time: string } | null>(null);
   const dragActionRef = useRef<DragAction | null>(null);
   const fillModeRef = useRef<FillMode>(fillMode);
-  const busyRef = useRef(busy);
   const isEditingRef = useRef(isEditing);
   const selectedRef = useRef(selected);
   useEffect(() => {
     fillModeRef.current = fillMode;
   }, [fillMode]);
-  useEffect(() => {
-    busyRef.current = busy;
-  }, [busy]);
   useEffect(() => {
     isEditingRef.current = isEditing;
   }, [isEditing]);
@@ -301,7 +299,6 @@ export function EventBoard({
     setSelected((prev) => {
       const next = { ...prev };
       for (const key of toPaint) {
-        if (busyRef.current[key]) continue;
         if (action === "remove") {
           delete next[key];
         } else if (action === "add_available") {
@@ -431,13 +428,18 @@ export function EventBoard({
     key: string;
     mine: SlotStatus | undefined;
     isPainted: boolean;
-    isBusy: boolean;
+    isCalendarUnavailable: boolean;
     hoverActive: boolean;
     hoveredStatus: SlotStatus | undefined;
   }): string {
-    const { key, mine, isPainted, isBusy, hoverActive, hoveredStatus } = args;
-    if (isBusy)
-      return "bg-rose-950/55 cursor-not-allowed border border-rose-900/50";
+    const {
+      key,
+      mine,
+      isPainted,
+      isCalendarUnavailable,
+      hoverActive,
+      hoveredStatus,
+    } = args;
     if (isPainted) return `${previewClassForPaint()} cursor-pointer`;
 
     if (hoverActive) {
@@ -450,6 +452,10 @@ export function EventBoard({
     if (mine === "AVAILABLE") return "bg-green-700 hover:bg-green-800";
     if (mine === "IF_NEEDED")
       return "bg-yellow-400 hover:bg-yellow-500 relative";
+
+    if (isCalendarUnavailable) {
+      return "bg-rose-900/40 hover:bg-rose-900/55 border border-rose-900/60";
+    }
 
     if (isEditing) return "bg-red-300 hover:bg-red-200";
 
@@ -465,7 +471,6 @@ export function EventBoard({
   function handleCellMouseDown(date: string, time: string) {
     if (readOnly || !canParticipate) return;
     const key = `${date}|${time}`;
-    if (busyRef.current[key]) return;
     if (!isEditingRef.current) {
       triggerPrimaryBlink();
       return;
@@ -538,7 +543,7 @@ export function EventBoard({
     for (const d of dates) {
       for (const t of slots) {
         const key = `${d}|${t}`;
-        if (!busy[key]) next[key] = "AVAILABLE";
+        if (!calendarUnavailable[key]) next[key] = "AVAILABLE";
       }
     }
     setFillingWave(true);
@@ -576,7 +581,6 @@ export function EventBoard({
   async function submitAvailability() {
     if (!signedInUserName?.trim()) return;
     const payload = Object.entries(selected)
-      .filter(([key]) => !busy[key])
       .map(([key, status]) => {
         const [date, time] = key.split("|");
         return { date, time, status };
@@ -604,28 +608,40 @@ export function EventBoard({
     }
   }
 
-  async function syncGoogleCalendar() {
+  const syncGoogleCalendar = useCallback(async () => {
     const res = await fetch("/api/sync-calendar", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ slug }),
     });
 
-    if (res.status === 400) {
+    let errorPayload:
+      | {
+          error?: string;
+          requiresReconnect?: boolean;
+        }
+      | undefined;
+    if (!res.ok) {
+      try {
+        errorPayload = (await res.json()) as {
+          error?: string;
+          requiresReconnect?: boolean;
+        };
+      } catch {
+        errorPayload = undefined;
+      }
+    }
+
+    if (res.status === 400 && errorPayload?.requiresReconnect) {
       window.location.assign(
-        `/api/google-calendar/connect?returnTo=${encodeURIComponent(`/event/${slug}`)}`,
+        `/api/google-calendar/connect?returnTo=${encodeURIComponent(`/event/${slug}?calendarSync=1`)}`,
       );
       return;
     }
 
     if (!res.ok) {
       let message = "Synkronisering feilet.";
-      try {
-        const err = (await res.json()) as { error?: string };
-        if (err.error) message = err.error;
-      } catch {
-        // Keep fallback message.
-      }
+      if (errorPayload?.error) message = errorPayload.error;
       alert(message);
       return;
     }
@@ -634,14 +650,23 @@ export function EventBoard({
       events?: SyncCalendarEvent[];
     };
     const blockedMap = Object.fromEntries(data.blocked.map((k) => [k, true]));
-    setBusy(blockedMap);
+    setCalendarUnavailable(blockedMap);
     setCalendarEvents(Array.isArray(data.events) ? data.events : []);
-    setSelected((prev) => {
-      const next = { ...prev };
-      for (const key of data.blocked) delete next[key];
-      return next;
-    });
-  }
+  }, [slug]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("calendarSync") !== "1") return;
+    if (!signedInUserId) return;
+
+    setIsEditing(true);
+    void syncGoogleCalendar();
+
+    params.delete("calendarSync");
+    const qs = params.toString();
+    const nextUrl = `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, "", nextUrl);
+  }, [signedInUserId, syncGoogleCalendar]);
 
   return (
     <div className="space-y-4">
@@ -670,14 +695,20 @@ export function EventBoard({
             {copied ? "Kopiert!" : "Del lenke"}
           </button>
           {signedInUserId ? (
-            <button
-              type="button"
-              onClick={syncGoogleCalendar}
-              disabled={!isEditing}
-              className="rounded-md border border-border px-3 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Synkroniser Google Kalender
-            </button>
+            <div className="flex min-w-0 flex-col">
+              <button
+                type="button"
+                onClick={syncGoogleCalendar}
+                disabled={!canParticipate || readOnly}
+                className="rounded-md border border-border px-3 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Synkroniser Google Kalender
+              </button>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Kalenderaktiviteter markeres som utilgjengelige, men kan
+                overstyres med klikk.
+              </p>
+            </div>
           ) : null}
           <p className="min-w-0 shrink text-sm text-muted-foreground">
             {saved ? "Lagret." : "Ikke lagret ennå."}
@@ -796,7 +827,7 @@ export function EventBoard({
                       const key = `${date}|${time}`;
                       const mine = selected[key];
                       const isPainted = paintedSlots.has(key);
-                      const isBusy = busy[key];
+                      const isCalendarUnavailable = calendarUnavailable[key];
 
                       const staggerMs =
                         fillingWave && canParticipate
@@ -824,7 +855,7 @@ export function EventBoard({
                         key,
                         mine,
                         isPainted,
-                        isBusy,
+                        isCalendarUnavailable,
                         hoverActive,
                         hoveredStatus,
                       });
@@ -844,9 +875,9 @@ export function EventBoard({
                           : "Ingen ennå";
 
                       const interactive =
-                        !readOnly && canParticipate && isEditing && !isBusy;
+                        !readOnly && canParticipate && isEditing;
                       const cellDisabled =
-                        readOnly || !canParticipate || isBusy;
+                        readOnly || !canParticipate;
                       const cellAriaDisabled = !interactive;
 
                       return (

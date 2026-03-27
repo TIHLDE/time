@@ -25,6 +25,10 @@ type GoogleApiError = {
     status?: string;
   };
 };
+type SyncCalendarErrorBody = {
+  error: string;
+  requiresReconnect?: boolean;
+};
 
 function parseGoogleEventRange(
   item: GoogleEvent,
@@ -71,7 +75,11 @@ export async function POST(req: Request) {
     });
 
     if (!user?.googleAccessToken) {
-      return NextResponse.json({ error: "Fant ikke Google-token" }, { status: 400 });
+      const body: SyncCalendarErrorBody = {
+        error: "Fant ikke Google-token",
+        requiresReconnect: true,
+      };
+      return NextResponse.json(body, { status: 400 });
     }
 
     const event = await prisma.event.findUnique({
@@ -104,7 +112,11 @@ export async function POST(req: Request) {
 
     if (!response.ok && (response.status === 401 || response.status === 403)) {
     if (!user.googleRefreshToken) {
-      return NextResponse.json({ error: "Fant ikke Google-token" }, { status: 400 });
+      const body: SyncCalendarErrorBody = {
+        error: "Fant ikke Google-token",
+        requiresReconnect: true,
+      };
+      return NextResponse.json(body, { status: 400 });
     }
 
     const googleClientId = process.env.AUTH_GOOGLE_ID;
@@ -128,20 +140,22 @@ export async function POST(req: Request) {
     });
 
     if (!refreshRes.ok) {
-      return NextResponse.json(
-        { error: "Kunne ikke oppdatere Google-token" },
-        { status: 400 },
-      );
+      const body: SyncCalendarErrorBody = {
+        error: "Kunne ikke oppdatere Google-token",
+        requiresReconnect: true,
+      };
+      return NextResponse.json(body, { status: 400 });
     }
 
     const refreshData = (await refreshRes.json()) as {
       access_token?: string;
     };
     if (!refreshData.access_token) {
-      return NextResponse.json(
-        { error: "Kunne ikke oppdatere Google-token" },
-        { status: 400 },
-      );
+      const body: SyncCalendarErrorBody = {
+        error: "Kunne ikke oppdatere Google-token",
+        requiresReconnect: true,
+      };
+      return NextResponse.json(body, { status: 400 });
     }
 
     await prisma.user.update({
@@ -167,12 +181,14 @@ export async function POST(req: Request) {
       }
 
       if (response.status === 401 || response.status === 403) {
+        const body: SyncCalendarErrorBody = {
+          error:
+            googleMessage ||
+            "Google-tilgang er ugyldig eller mangler rettigheter. Koble kalenderen til på nytt.",
+          requiresReconnect: true,
+        };
         return NextResponse.json(
-          {
-            error:
-              googleMessage ||
-              "Google-tilgang er ugyldig eller mangler rettigheter. Koble kalenderen til på nytt.",
-          },
+          body,
           { status: 400 },
         );
       }
