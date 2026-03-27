@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { AuthButtons } from "@/components/auth-buttons";
+import { DeleteEventButton } from "@/components/delete-event-button";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -64,18 +65,24 @@ export default async function Home({ searchParams }: HomeProps) {
               {myEvents.length > 0 ? (
                 <div className="space-y-2">
                   {myEvents.map((event) => (
-                    <Link
+                    <div
                       key={event.id}
-                      href={`/event/${event.slug}`}
-                      className="block rounded-md border border-border px-3 py-2 hover:bg-muted"
+                      className="flex items-stretch gap-2 rounded-md border border-border"
                     >
-                      <p className="font-medium text-card-foreground">
-                        {event.title}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Opprettet {event.createdAt.toLocaleDateString("nb-NO")}
-                      </p>
-                    </Link>
+                      <Link
+                        href={`/event/${event.slug}`}
+                        className="min-w-0 flex-1 px-3 py-2 hover:bg-muted"
+                      >
+                        <p className="font-medium text-card-foreground">
+                          {event.title}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Opprettet{" "}
+                          {event.createdAt.toLocaleDateString("nb-NO")}
+                        </p>
+                      </Link>
+                      <DeleteEventButton slug={event.slug} title={event.title} />
+                    </div>
                   ))}
                 </div>
               ) : (

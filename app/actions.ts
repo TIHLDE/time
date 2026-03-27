@@ -144,3 +144,33 @@ export async function saveAvailability(input: unknown) {
   revalidatePath(`/event/${eventSlug}`);
   return { participantId: participant.id };
 }
+
+const deleteEventSchema = z.object({
+  slug: z.string().min(1),
+});
+
+export async function deleteEvent(slug: string) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    throw new Error("Du må være innlogget.");
+  }
+
+  const parsed = deleteEventSchema.safeParse({ slug });
+  if (!parsed.success) {
+    throw new Error("Ugyldig arrangementslenke");
+  }
+
+  const event = await prisma.event.findUnique({
+    where: { slug: parsed.data.slug },
+  });
+  if (!event) {
+    throw new Error("Arrangementet ble ikke funnet");
+  }
+  if (event.createdById !== session.user.id) {
+    throw new Error("Du har ikke tilgang til å slette dette arrangementet");
+  }
+
+  await prisma.event.delete({ where: { id: event.id } });
+  revalidatePath("/");
+  revalidatePath(`/event/${parsed.data.slug}`);
+}
