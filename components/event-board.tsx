@@ -619,7 +619,14 @@ export function EventBoard({
     }
 
     if (!res.ok) {
-      alert("Synkronisering feilet.");
+      let message = "Synkronisering feilet.";
+      try {
+        const err = (await res.json()) as { error?: string };
+        if (err.error) message = err.error;
+      } catch {
+        // Keep fallback message.
+      }
+      alert(message);
       return;
     }
     const data = (await res.json()) as {

@@ -29,8 +29,17 @@ function parseGoogleEventRange(
     return { start, end };
   }
   if (item.start?.date && item.end?.date) {
-    const start = toDate(`${item.start.date}T00:00:00`, { timeZone });
-    const end = toDate(`${item.end.date}T00:00:00`, { timeZone });
+    let start: Date;
+    let end: Date;
+    try {
+      start = toDate(`${item.start.date}T00:00:00`, { timeZone });
+      end = toDate(`${item.end.date}T00:00:00`, { timeZone });
+    } catch {
+      start = toDate(`${item.start.date}T00:00:00`, {
+        timeZone: "Europe/Oslo",
+      });
+      end = toDate(`${item.end.date}T00:00:00`, { timeZone: "Europe/Oslo" });
+    }
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
     return { start, end };
   }
@@ -38,53 +47,54 @@ function parseGoogleEventRange(
 }
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Ikke autorisert" }, { status: 401 });
-  }
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Ikke autorisert" }, { status: 401 });
+    }
 
-  const { slug } = (await req.json()) as { slug?: string };
-  if (!slug) {
-    return NextResponse.json({ error: "Mangler slug" }, { status: 400 });
-  }
+    const { slug } = (await req.json()) as { slug?: string };
+    if (!slug) {
+      return NextResponse.json({ error: "Mangler slug" }, { status: 400 });
+    }
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-  });
-
-  if (!user?.googleAccessToken) {
-    return NextResponse.json({ error: "Fant ikke Google-token" }, { status: 400 });
-  }
-
-  const event = await prisma.event.findUnique({
-    where: { slug },
-  });
-  if (!event) {
-    return NextResponse.json({ error: "Arrangementet ble ikke funnet" }, { status: 404 });
-  }
-
-  const timeZone = getEventTimezone();
-
-  const minDate = `${event.dates[0]}T00:00:00.000Z`;
-  const maxDate = `${event.dates[event.dates.length - 1]}T23:59:59.999Z`;
-  const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
-  url.searchParams.set("timeMin", minDate);
-  url.searchParams.set("timeMax", maxDate);
-  url.searchParams.set("singleEvents", "true");
-  url.searchParams.set("orderBy", "startTime");
-
-  async function fetchGoogleEvents(accessToken: string) {
-    return fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      cache: "no-store",
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
     });
-  }
 
-  let response = await fetchGoogleEvents(user.googleAccessToken);
+    if (!user?.googleAccessToken) {
+      return NextResponse.json({ error: "Fant ikke Google-token" }, { status: 400 });
+    }
 
-  if (!response.ok && (response.status === 401 || response.status === 403)) {
+    const event = await prisma.event.findUnique({
+      where: { slug },
+    });
+    if (!event) {
+      return NextResponse.json({ error: "Arrangementet ble ikke funnet" }, { status: 404 });
+    }
+
+    const timeZone = getEventTimezone();
+
+    const minDate = `${event.dates[0]}T00:00:00.000Z`;
+    const maxDate = `${event.dates[event.dates.length - 1]}T23:59:59.999Z`;
+    const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
+    url.searchParams.set("timeMin", minDate);
+    url.searchParams.set("timeMax", maxDate);
+    url.searchParams.set("singleEvents", "true");
+    url.searchParams.set("orderBy", "startTime");
+
+    async function fetchGoogleEvents(accessToken: string) {
+      return fetch(url, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        cache: "no-store",
+      });
+    }
+
+    let response = await fetchGoogleEvents(user.googleAccessToken);
+
+    if (!response.ok && (response.status === 401 || response.status === 403)) {
     if (!user.googleRefreshToken) {
       return NextResponse.json({ error: "Fant ikke Google-token" }, { status: 400 });
     }
@@ -134,50 +144,58 @@ export async function POST(req: Request) {
     });
 
     response = await fetchGoogleEvents(refreshData.access_token);
-  }
+    }
 
-  if (!response.ok) {
-    return NextResponse.json(
-      { error: "Kunne ikke hente Google-hendelser" },
-      { status: 500 },
-    );
-  }
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: "Kunne ikke hente Google-hendelser" },
+        { status: 500 },
+      );
+    }
 
-  const data = (await response.json()) as { items?: GoogleEvent[] };
-  const items = data.items ?? [];
+    const data = (await response.json()) as { items?: GoogleEvent[] };
+    const items = data.items ?? [];
 
-  const slots = buildTimeSlots(event.startTime, event.endTime, event.slotDuration);
-  const blocked = new Set<string>();
-  const overlayEvents: SyncCalendarEvent[] = [];
+    const slots = buildTimeSlots(event.startTime, event.endTime, event.slotDuration);
+    const blocked = new Set<string>();
+    const overlayEvents: SyncCalendarEvent[] = [];
 
-  for (const item of items) {
-    const range = parseGoogleEventRange(item, timeZone);
-    if (!range) continue;
+    for (const item of items) {
+      const range = parseGoogleEventRange(item, timeZone);
+      if (!range) continue;
 
-    const title = (item.summary ?? "(Uten tittel)").trim() || "(Uten tittel)";
-    overlayEvents.push({
-      title,
-      start: range.start.toISOString(),
-      end: range.end.toISOString(),
-    });
+      const title = (item.summary ?? "(Uten tittel)").trim() || "(Uten tittel)";
+      overlayEvents.push({
+        title,
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+      });
 
-    for (const date of event.dates) {
-      for (const time of slots) {
-        const { start: slotStart, end: slotEnd } = slotRangeUtc(
-          date,
-          time,
-          event.slotDuration,
-          timeZone,
-        );
-        if (intervalsOverlap(slotStart, slotEnd, range.start, range.end)) {
-          blocked.add(`${date}|${time}`);
+      for (const date of event.dates) {
+        for (const time of slots) {
+          const { start: slotStart, end: slotEnd } = slotRangeUtc(
+            date,
+            time,
+            event.slotDuration,
+            timeZone,
+          );
+          if (intervalsOverlap(slotStart, slotEnd, range.start, range.end)) {
+            blocked.add(`${date}|${time}`);
+          }
         }
       }
     }
-  }
+    
 
-  return NextResponse.json({
-    blocked: Array.from(blocked),
-    events: overlayEvents,
-  });
+    return NextResponse.json({
+      blocked: Array.from(blocked),
+      events: overlayEvents,
+    });
+  } catch (error) {
+    console.error("sync-calendar failed", error);
+    return NextResponse.json(
+      { error: "Synkronisering feilet på serveren" },
+      { status: 500 },
+    );
+  }
 }

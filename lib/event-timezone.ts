@@ -1,11 +1,9 @@
 import { toDate } from "date-fns-tz";
 
 export function getEventTimezone(): string {
-  return (
-    process.env.NEXT_PUBLIC_EVENT_TIMEZONE ??
-    process.env.EVENT_TIMEZONE ??
-    "Europe/Oslo"
-  );
+  const candidate =
+    process.env.NEXT_PUBLIC_EVENT_TIMEZONE || process.env.EVENT_TIMEZONE;
+  return candidate?.trim() ? candidate.trim() : "Europe/Oslo";
 }
 
 export function slotRangeUtc(
@@ -16,7 +14,14 @@ export function slotRangeUtc(
 ): { start: Date; end: Date } {
   const normalized =
     timeStr.length === 5 ? `${timeStr}:00` : timeStr;
-  const start = toDate(`${dateStr}T${normalized}`, { timeZone });
+  let start: Date;
+  try {
+    start = toDate(`${dateStr}T${normalized}`, { timeZone });
+    if (Number.isNaN(start.getTime())) throw new Error("Invalid timezone date");
+  } catch {
+    // Never crash sync/render on bad timezone env values.
+    start = toDate(`${dateStr}T${normalized}`, { timeZone: "Europe/Oslo" });
+  }
   const end = new Date(start.getTime() + slotDurationMinutes * 60 * 1000);
   return { start, end };
 }
