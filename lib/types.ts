@@ -11,3 +11,10 @@ export type CellEntry = {
   name: string;
   status: SlotStatus;
 };
+
+/** Google Calendar overlay segment returned by POST /api/sync-calendar */
+export type SyncCalendarEvent = {
+  title: string;
+  start: string;
+  end: string;
+};

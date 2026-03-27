@@ -1,17 +1,40 @@
 import { auth } from "@/auth";
+import {
+  getEventTimezone,
+  intervalsOverlap,
+  slotRangeUtc,
+} from "@/lib/event-timezone";
 import { prisma } from "@/lib/prisma";
 import { buildTimeSlots } from "@/lib/time";
+import type { SyncCalendarEvent } from "@/lib/types";
+import { toDate } from "date-fns-tz";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
 type GoogleEvent = {
+  summary?: string;
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
 };
 
-function overlaps(slotStart: Date, slotEnd: Date, eventStart: Date, eventEnd: Date) {
-  return slotStart < eventEnd && eventStart < slotEnd;
+function parseGoogleEventRange(
+  item: GoogleEvent,
+  timeZone: string,
+): { start: Date; end: Date } | null {
+  if (item.start?.dateTime && item.end?.dateTime) {
+    const start = new Date(item.start.dateTime);
+    const end = new Date(item.end.dateTime);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+    return { start, end };
+  }
+  if (item.start?.date && item.end?.date) {
+    const start = toDate(`${item.start.date}T00:00:00`, { timeZone });
+    const end = toDate(`${item.end.date}T00:00:00`, { timeZone });
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+    return { start, end };
+  }
+  return null;
 }
 
 export async function POST(req: Request) {
@@ -40,6 +63,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Arrangementet ble ikke funnet" }, { status: 404 });
   }
 
+  const timeZone = getEventTimezone();
+
   const minDate = `${event.dates[0]}T00:00:00.000Z`;
   const maxDate = `${event.dates[event.dates.length - 1]}T23:59:59.999Z`;
   const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
@@ -59,7 +84,6 @@ export async function POST(req: Request) {
 
   let response = await fetchGoogleEvents(user.googleAccessToken);
 
-  // Token can expire between connect and sync; refresh once and retry.
   if (!response.ok && (response.status === 401 || response.status === 403)) {
     if (!user.googleRefreshToken) {
       return NextResponse.json({ error: "Fant ikke Google-token" }, { status: 400 });
@@ -124,26 +148,36 @@ export async function POST(req: Request) {
 
   const slots = buildTimeSlots(event.startTime, event.endTime, event.slotDuration);
   const blocked = new Set<string>();
+  const overlayEvents: SyncCalendarEvent[] = [];
 
-  for (const date of event.dates) {
-    for (const time of slots) {
-      const start = new Date(`${date}T${time}:00.000Z`);
-      const end = new Date(start.getTime() + event.slotDuration * 60 * 1000);
+  for (const item of items) {
+    const range = parseGoogleEventRange(item, timeZone);
+    if (!range) continue;
 
-      const hasConflict = items.some((item) => {
-        if (!item.start?.dateTime || !item.end?.dateTime) {
-          return false;
+    const title = (item.summary ?? "(Uten tittel)").trim() || "(Uten tittel)";
+    overlayEvents.push({
+      title,
+      start: range.start.toISOString(),
+      end: range.end.toISOString(),
+    });
+
+    for (const date of event.dates) {
+      for (const time of slots) {
+        const { start: slotStart, end: slotEnd } = slotRangeUtc(
+          date,
+          time,
+          event.slotDuration,
+          timeZone,
+        );
+        if (intervalsOverlap(slotStart, slotEnd, range.start, range.end)) {
+          blocked.add(`${date}|${time}`);
         }
-        const eventStart = new Date(item.start.dateTime);
-        const eventEnd = new Date(item.end.dateTime);
-        return overlaps(start, end, eventStart, eventEnd);
-      });
-
-      if (hasConflict) {
-        blocked.add(`${date}|${time}`);
       }
     }
   }
 
-  return NextResponse.json({ blocked: Array.from(blocked) });
+  return NextResponse.json({
+    blocked: Array.from(blocked),
+    events: overlayEvents,
+  });
 }

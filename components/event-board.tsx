@@ -12,6 +12,11 @@ import { format, parseISO } from "date-fns";
 import { nb } from "date-fns/locale";
 import Link from "next/link";
 import type { SlotStatus } from "@prisma/client";
+import {
+  getEventTimezone,
+  slotIndicesOverlappingEventOnDate,
+} from "@/lib/event-timezone";
+import type { SyncCalendarEvent } from "@/lib/types";
 import { buildTimeSlots } from "@/lib/time";
 import { saveAvailability } from "@/app/actions";
 
@@ -128,6 +133,9 @@ export function EventBoard({
     Record<string, SlotStatus>
   >({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [calendarEvents, setCalendarEvents] = useState<SyncCalendarEvent[]>(
+    [],
+  );
   const [paintedSlots, setPaintedSlots] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -175,6 +183,76 @@ export function EventBoard({
   );
   const pages = Math.ceil(dates.length / 7);
   const visibleDates = dates.slice(page * 7, page * 7 + 7);
+
+  const calendarOverlayPlacements = useMemo(() => {
+    if (calendarEvents.length === 0) return [];
+    const tz = getEventTimezone();
+    type Placement = {
+      key: string;
+      dateCol: number;
+      rowStart: number;
+      rowEnd: number;
+      title: string;
+    };
+    const raw: Placement[] = [];
+    for (const ev of calendarEvents) {
+      const evStart = new Date(ev.start);
+      const evEnd = new Date(ev.end);
+      if (Number.isNaN(evStart.getTime()) || Number.isNaN(evEnd.getTime())) {
+        continue;
+      }
+      for (let d = 0; d < visibleDates.length; d++) {
+        const dateStr = visibleDates[d];
+        const idx = slotIndicesOverlappingEventOnDate(
+          dateStr,
+          evStart,
+          evEnd,
+          slots,
+          slotDuration,
+          tz,
+        );
+        if (!idx) continue;
+        raw.push({
+          key: `${ev.start}|${ev.end}|${dateStr}|${d}`,
+          dateCol: d,
+          rowStart: idx.startIdx + 2,
+          rowEnd: idx.endIdxExclusive + 2,
+          title: ev.title,
+        });
+      }
+    }
+
+    const byCol = new Map<number, Placement[]>();
+    for (const p of raw) {
+      const list = byCol.get(p.dateCol) ?? [];
+      list.push(p);
+      byCol.set(p.dateCol, list);
+    }
+
+    const result: (Placement & { layer: number; zIndex: number })[] = [];
+    for (const [, list] of byCol) {
+      const sorted = [...list].sort((a, b) => a.rowStart - b.rowStart);
+      const layers: number[] = [];
+      for (let i = 0; i < sorted.length; i++) {
+        let layer = 0;
+        for (let j = 0; j < i; j++) {
+          const overlaps =
+            sorted[i].rowStart < sorted[j].rowEnd &&
+            sorted[j].rowStart < sorted[i].rowEnd;
+          if (overlaps) {
+            layer = Math.max(layer, layers[j] + 1);
+          }
+        }
+        layers[i] = layer;
+        result.push({
+          ...sorted[i],
+          layer,
+          zIndex: 10 + layer,
+        });
+      }
+    }
+    return result;
+  }, [calendarEvents, visibleDates, slots, slotDuration]);
 
   useEffect(() => {
     const key = `participant_${slug}`;
@@ -358,7 +436,8 @@ export function EventBoard({
     hoveredStatus: SlotStatus | undefined;
   }): string {
     const { key, mine, isPainted, isBusy, hoverActive, hoveredStatus } = args;
-    if (isBusy) return "bg-border cursor-not-allowed";
+    if (isBusy)
+      return "bg-rose-950/55 cursor-not-allowed border border-rose-900/50";
     if (isPainted) return `${previewClassForPaint()} cursor-pointer`;
 
     if (hoverActive) {
@@ -543,9 +622,13 @@ export function EventBoard({
       alert("Synkronisering feilet.");
       return;
     }
-    const data = (await res.json()) as { blocked: string[] };
+    const data = (await res.json()) as {
+      blocked: string[];
+      events?: SyncCalendarEvent[];
+    };
     const blockedMap = Object.fromEntries(data.blocked.map((k) => [k, true]));
     setBusy(blockedMap);
+    setCalendarEvents(Array.isArray(data.events) ? data.events : []);
     setSelected((prev) => {
       const next = { ...prev };
       for (const key of data.blocked) delete next[key];
@@ -667,7 +750,7 @@ export function EventBoard({
         >
           <div className="min-w-0 flex-1 overflow-x-auto">
             <div
-              className="grid min-w-full select-none gap-0 text-sm"
+              className="relative grid min-w-full select-none gap-0 text-sm"
               style={{
                 touchAction: "manipulation",
                 gridTemplateColumns: `56px repeat(${visibleDates.length}, minmax(${narrowGrid ? 72 : 80}px, 1fr))`,
@@ -796,6 +879,21 @@ export function EventBoard({
                   </Fragment>
                 );
               })}
+              {calendarOverlayPlacements.map((p) => (
+                <div
+                  key={p.key}
+                  className="pointer-events-none min-w-0 overflow-hidden border border-primary/40 bg-primary/10 px-0.5 py-0.5 text-left text-[10px] leading-tight text-primary"
+                  style={{
+                    gridColumn: `${p.dateCol + 2} / ${p.dateCol + 3}`,
+                    gridRow: `${p.rowStart} / ${p.rowEnd}`,
+                    zIndex: p.zIndex,
+                    marginLeft: p.layer * 3,
+                    marginRight: p.layer * 3,
+                  }}
+                >
+                  <span className="line-clamp-2">{p.title}</span>
+                </div>
+              ))}
             </div>
           </div>
 
