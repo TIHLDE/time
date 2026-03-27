@@ -608,7 +608,8 @@ export function EventBoard({
     }
   }
 
-  const syncGoogleCalendar = useCallback(async () => {
+  const syncGoogleCalendar = useCallback(async (opts?: { auto?: boolean }) => {
+    const auto = opts?.auto ?? false;
     const res = await fetch("/api/sync-calendar", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -632,7 +633,7 @@ export function EventBoard({
       }
     }
 
-    if (res.status === 400 && errorPayload?.requiresReconnect) {
+    if (res.status === 400 && errorPayload?.requiresReconnect && !auto) {
       window.location.assign(
         `/api/google-calendar/connect?returnTo=${encodeURIComponent(`/event/${slug}?calendarSync=1`)}`,
       );
@@ -660,7 +661,7 @@ export function EventBoard({
     if (!signedInUserId) return;
 
     setIsEditing(true);
-    void syncGoogleCalendar();
+    void syncGoogleCalendar({ auto: true });
 
     params.delete("calendarSync");
     const qs = params.toString();
@@ -698,7 +699,7 @@ export function EventBoard({
             <div className="flex min-w-0 flex-col">
               <button
                 type="button"
-                onClick={syncGoogleCalendar}
+                onClick={() => void syncGoogleCalendar()}
                 disabled={!canParticipate || readOnly}
                 className="rounded-md border border-border px-3 py-2 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
               >
