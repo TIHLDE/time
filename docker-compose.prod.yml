@@ -1,0 +1,9 @@
+services:
+  time.tihlde.org:
+    ports: "192.168.0.145:5656:3000"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    container_name: time.tihlde.org
+    env_file: .env
