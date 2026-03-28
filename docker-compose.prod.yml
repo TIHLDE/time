@@ -1,7 +1,7 @@
 services:
   time.tihlde.org:
     ports:
-      - "192.168.0.145:5656:3000"
+      - "192.168.0.41:5656:3000"
     build:
       context: .
       dockerfile: Dockerfile
