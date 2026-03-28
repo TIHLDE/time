@@ -938,31 +938,49 @@ export function EventBoard({
 
           <div className="flex w-full shrink-0 flex-col gap-3 border border-border bg-muted/40 p-3 lg:w-52">
             <div
-              className="flex flex-row items-center justify-center gap-2 lg:flex-col lg:justify-start"
+              className="flex w-full flex-col gap-2"
               role="group"
               aria-label="Fyllmodus"
             >
-              <span className="text-xs font-medium text-muted-foreground lg:mb-1">
+              <span className="text-xs font-medium text-muted-foreground">
                 Modus
               </span>
-              <div className="flex flex-row gap-2 lg:flex-col lg:gap-3">
+              <div className="flex w-full rounded-lg border border-border bg-muted/60 p-0.5">
                 <button
                   type="button"
                   onClick={() => setFillMode("AVAILABLE")}
                   disabled={!canParticipate || readOnly || !isEditing}
-                  className={`flex min-h-[72px] flex-1 flex-col items-center justify-center rounded-md border-2 px-3 py-2 text-center text-xs font-medium transition-colors lg:w-full ${fillMode === "AVAILABLE" ? "border-green-700 bg-green-700 text-white" : "border-border bg-card text-card-foreground hover:bg-muted"}`}
+                  aria-pressed={fillMode === "AVAILABLE"}
+                  className={`flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-2 text-center text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                    fillMode === "AVAILABLE"
+                      ? "bg-green-700 text-white hover:bg-green-800"
+                      : "bg-transparent text-muted-foreground hover:bg-muted/80 hover:text-card-foreground"
+                  }`}
                 >
-                  <span className="mb-1 h-3 w-3 rounded-full bg-green-700 ring-2 ring-green-800/30" />
                   Tilgjengelig
                 </button>
                 <button
                   type="button"
                   onClick={() => setFillMode("IF_NEEDED")}
                   disabled={!canParticipate || readOnly || !isEditing}
-                  className={`flex min-h-[72px] flex-1 flex-col items-center justify-center rounded-md border-2 px-3 py-2 text-center text-xs font-medium transition-colors lg:w-full ${fillMode === "IF_NEEDED" ? "border-yellow-500 bg-yellow-400 text-yellow-950" : "border-border bg-card text-card-foreground hover:bg-muted"}`}
+                  aria-pressed={fillMode === "IF_NEEDED"}
+                  className={`relative flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-2 text-center text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                    fillMode === "IF_NEEDED"
+                      ? "bg-yellow-400 text-yellow-950 hover:bg-yellow-500"
+                      : "bg-transparent text-muted-foreground hover:bg-muted/80 hover:text-card-foreground"
+                  }`}
                 >
-                  <span className="mb-1 h-3 w-3 rounded-full bg-yellow-400 ring-2 ring-yellow-600/30" />
-                  Om nødvendig
+                  {fillMode === "IF_NEEDED" ? (
+                    <span
+                      className="pointer-events-none absolute inset-0 rounded-md opacity-40"
+                      style={{
+                        backgroundImage:
+                          "repeating-linear-gradient(135deg, rgba(234,179,8,0.55), rgba(234,179,8,0.55) 4px, transparent 4px, transparent 8px)",
+                      }}
+                      aria-hidden
+                    />
+                  ) : null}
+                  <span className="relative z-1">Om nødvendig</span>
                 </button>
               </div>
             </div>

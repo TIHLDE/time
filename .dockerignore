@@ -1,0 +1,10 @@
+.git
+.cursor
+.vscode
+node_modules
+.env
+.env.example
+.gitignore
+Dockerfile
+README.md
+.eslintrc.json

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRef, useState } from "react";
 import {
   addMonths,
@@ -115,6 +116,14 @@ export function CreateEventForm() {
       onSubmit={handleSubmit}
       className="space-y-6 rounded-lg border border-border bg-card p-4 shadow-sm sm:p-6"
     >
+      <div>
+        <Link
+          href="/"
+          className="inline-flex text-sm font-medium text-primary underline underline-offset-4 hover:opacity-90"
+        >
+          ← Tilbake til forsiden
+        </Link>
+      </div>
       <div>
         <h1 className="text-xl font-semibold">Nytt arrangement</h1>
         <p className="text-sm text-muted-foreground">
