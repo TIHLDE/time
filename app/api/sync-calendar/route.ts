@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import {
   getEventTimezone,
+  googleCalendarListQueryBounds,
   intervalsOverlap,
   slotRangeUtc,
 } from "@/lib/event-timezone";
@@ -91,11 +92,17 @@ export async function POST(req: Request) {
 
     const timeZone = getEventTimezone();
 
-    const minDate = `${event.dates[0]}T00:00:00.000Z`;
-    const maxDate = `${event.dates[event.dates.length - 1]}T23:59:59.999Z`;
+    const sortedDates = [...event.dates].sort();
+    const firstBoardDate = sortedDates[0]!;
+    const lastBoardDate = sortedDates[sortedDates.length - 1]!;
+    const { timeMin, timeMax } = googleCalendarListQueryBounds(
+      firstBoardDate,
+      lastBoardDate,
+      timeZone,
+    );
     const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
-    url.searchParams.set("timeMin", minDate);
-    url.searchParams.set("timeMax", maxDate);
+    url.searchParams.set("timeMin", timeMin.toISOString());
+    url.searchParams.set("timeMax", timeMax.toISOString());
     url.searchParams.set("singleEvents", "true");
     url.searchParams.set("orderBy", "startTime");
 

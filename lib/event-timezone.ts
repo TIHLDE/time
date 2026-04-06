@@ -6,6 +6,39 @@ export function getEventTimezone(): string {
   return candidate?.trim() ? candidate.trim() : "Europe/Oslo";
 }
 
+/** ISO calendar date `YYYY-MM-DD` plus `days` (UTC date arithmetic, timezone-agnostic). */
+export function addDaysToIsoCalendarDate(isoDate: string, days: number): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const u = new Date(Date.UTC(y, m - 1, d));
+  u.setUTCDate(u.getUTCDate() + days);
+  return u.toISOString().slice(0, 10);
+}
+
+/**
+ * Instants for Google Calendar `events.list` timeMin / timeMax.
+ * API semantics: returns events with end > timeMin and start < timeMax.
+ * This window includes every event overlapping board days in `timeZone`
+ * (local midnight of first date through local midnight after last date).
+ */
+export function googleCalendarListQueryBounds(
+  firstDateStr: string,
+  lastDateStr: string,
+  timeZone: string = getEventTimezone(),
+): { timeMin: Date; timeMax: Date } {
+  let timeMin: Date;
+  let timeMax: Date;
+  try {
+    timeMin = toDate(`${firstDateStr}T00:00:00`, { timeZone });
+    const dayAfterLast = addDaysToIsoCalendarDate(lastDateStr, 1);
+    timeMax = toDate(`${dayAfterLast}T00:00:00`, { timeZone });
+  } catch {
+    timeMin = toDate(`${firstDateStr}T00:00:00`, { timeZone: "Europe/Oslo" });
+    const dayAfterLast = addDaysToIsoCalendarDate(lastDateStr, 1);
+    timeMax = toDate(`${dayAfterLast}T00:00:00`, { timeZone: "Europe/Oslo" });
+  }
+  return { timeMin, timeMax };
+}
+
 export function slotRangeUtc(
   dateStr: string,
   timeStr: string,

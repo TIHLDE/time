@@ -20,6 +20,14 @@ import type { SyncCalendarEvent } from "@/lib/types";
 import { buildTimeSlots } from "@/lib/time";
 import { saveAvailability } from "@/app/actions";
 
+const calendarBoardCacheKey = (eventSlug: string) => `calendarGhost:${eventSlug}`;
+
+type CalendarBoardCache = {
+  blocked: string[];
+  events: SyncCalendarEvent[];
+  syncedAt: number;
+};
+
 type ParticipantSeed = {
   id: string;
   name: string;
@@ -253,6 +261,22 @@ export function EventBoard({
   }, [calendarEvents, visibleDates, slots, slotDuration]);
 
   useEffect(() => {
+    if (!signedInUserId) return;
+    try {
+      const raw = sessionStorage.getItem(calendarBoardCacheKey(slug));
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as CalendarBoardCache;
+      if (!Array.isArray(parsed.blocked) || !Array.isArray(parsed.events)) return;
+      setCalendarUnavailable(
+        Object.fromEntries(parsed.blocked.map((k) => [k, true] as const)),
+      );
+      setCalendarEvents(parsed.events);
+    } catch {
+      /* ignore corrupt cache */
+    }
+  }, [slug, signedInUserId]);
+
+  useEffect(() => {
     const key = `participant_${slug}`;
     const stored = localStorage.getItem(key);
     const byAccount = signedInUserId
@@ -428,18 +452,10 @@ export function EventBoard({
     key: string;
     mine: SlotStatus | undefined;
     isPainted: boolean;
-    isCalendarUnavailable: boolean;
     hoverActive: boolean;
     hoveredStatus: SlotStatus | undefined;
   }): string {
-    const {
-      key,
-      mine,
-      isPainted,
-      isCalendarUnavailable,
-      hoverActive,
-      hoveredStatus,
-    } = args;
+    const { key, mine, isPainted, hoverActive, hoveredStatus } = args;
     if (isPainted) return `${previewClassForPaint()} cursor-pointer`;
 
     if (hoverActive) {
@@ -452,10 +468,6 @@ export function EventBoard({
     if (mine === "AVAILABLE") return "bg-green-700 hover:bg-green-800";
     if (mine === "IF_NEEDED")
       return "bg-yellow-400 hover:bg-yellow-500 relative";
-
-    if (isCalendarUnavailable) {
-      return "bg-rose-900/40 hover:bg-rose-900/55 border border-rose-900/60";
-    }
 
     if (isEditing) return "bg-red-300 hover:bg-red-200";
 
@@ -652,7 +664,18 @@ export function EventBoard({
     };
     const blockedMap = Object.fromEntries(data.blocked.map((k) => [k, true]));
     setCalendarUnavailable(blockedMap);
-    setCalendarEvents(Array.isArray(data.events) ? data.events : []);
+    const events = Array.isArray(data.events) ? data.events : [];
+    setCalendarEvents(events);
+    try {
+      const payload: CalendarBoardCache = {
+        blocked: data.blocked,
+        events,
+        syncedAt: Date.now(),
+      };
+      sessionStorage.setItem(calendarBoardCacheKey(slug), JSON.stringify(payload));
+    } catch {
+      /* quota / private mode */
+    }
   }, [slug]);
 
   useEffect(() => {
@@ -856,7 +879,6 @@ export function EventBoard({
                         key,
                         mine,
                         isPainted,
-                        isCalendarUnavailable,
                         hoverActive,
                         hoveredStatus,
                       });
@@ -899,13 +921,23 @@ export function EventBoard({
                             if (!interactive) e.preventDefault();
                           }}
                           disabled={cellDisabled}
-                          className={`relative block h-full w-full min-w-0 border-b border-r border-border p-0 leading-none ${colorClass} ${interactive || hoverActive ? "cursor-pointer" : "cursor-default"} ${dateIndex === 0 ? "border-l" : ""}`}
+                          className={`relative z-0 block h-full w-full min-w-0 border-b border-r border-border p-0 leading-none ${colorClass} ${interactive || hoverActive ? "cursor-pointer" : "cursor-default"} ${dateIndex === 0 ? "border-l" : ""}`}
                         >
+                          {isCalendarUnavailable && !isPainted ? (
+                            <span
+                              className="pointer-events-none absolute inset-0 z-[2] rounded-[1px] border border-dashed border-rose-700/45 dark:border-rose-300/35"
+                              style={{
+                                backgroundImage:
+                                  "repeating-linear-gradient(135deg, rgba(190,18,60,0.12), rgba(190,18,60,0.12) 3px, transparent 3px, transparent 7px)",
+                              }}
+                              aria-hidden
+                            />
+                          ) : null}
                           {(mine === "IF_NEEDED" ||
                             (hoverActive && hoveredStatus === "IF_NEEDED")) &&
                           !isPainted ? (
                             <span
-                              className="pointer-events-none absolute inset-0 opacity-40"
+                              className="pointer-events-none absolute inset-0 z-[3] opacity-40"
                               style={{
                                 backgroundImage:
                                   "repeating-linear-gradient(135deg, rgba(234,179,8,0.55), rgba(234,179,8,0.55) 4px, transparent 4px, transparent 8px)",
@@ -921,7 +953,7 @@ export function EventBoard({
               {calendarOverlayPlacements.map((p) => (
                 <div
                   key={p.key}
-                  className="pointer-events-none min-w-0 overflow-hidden border border-primary/40 bg-primary/10 px-0.5 py-0.5 text-left text-[10px] leading-tight text-primary"
+                  className="pointer-events-none min-w-0 overflow-hidden rounded-sm border border-dashed border-rose-700/40 bg-rose-950/10 px-0.5 py-0.5 text-left text-[10px] leading-tight text-rose-950/90 dark:border-rose-400/35 dark:bg-rose-950/30 dark:text-rose-50/90"
                   style={{
                     gridColumn: `${p.dateCol + 2} / ${p.dateCol + 3}`,
                     gridRow: `${p.rowStart} / ${p.rowEnd}`,
