@@ -1,14 +1,16 @@
-name: "CI - Build and push with reusable workflow (Production)"
-
+name: "build -> push -> deploy"
 on:
   push:
     branches: [main]
+    paths:
+      - ./**
+      - .github/workflows/deploy.yml
   pull_request:
     branches: [main]
+    paths:
+      - ./**
+      - .github/workflows/deploy.yml
   workflow_dispatch:
-
-permissions:
-  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,17 +21,14 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: TIHLDE/tihlde-workflows/.github/workflows/_ci_ghcr.yml@v1
+    uses: TIHLDE/tihlde-workflows/.github/workflows/_ci_ghcr.yml@main
     with:
-      tag-prefix: ""
-      push: ${{ github.event_name != 'pull_request' }}
+      context: .
+      dockerfile: ./Dockerfile
 
   deploy:
     needs: build
     if: github.event_name != 'pull_request'
-    uses: TIHLDE/tihlde-workflows/.github/workflows/_notify_deploy.yml@v1.1.3
-    with:
-      tag: latest
-      environment: prod
+    uses: TIHLDE/tihlde-workflows/.github/workflows/_notify_deploy.yml@main
     secrets:
       DEPLOY_RECEIVER_TOKEN: ${{ secrets.DEPLOY_RECEIVER_TOKEN }}
