@@ -156,11 +156,14 @@ export function EventBoard({
     string | null
   >(null);
   const [narrowGrid, setNarrowGrid] = useState(false);
+  const [daysPerPage, setDaysPerPage] = useState(7);
 
   const displayName =
     signedInUserName?.trim() || loadedParticipantName?.trim() || "";
 
   const isDraggingRef = useRef(false);
+  const gridScrollRef = useRef<HTMLDivElement | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const paintedSlotsRef = useRef<Set<string>>(new Set());
   const lastPaintedRef = useRef<{ date: string; time: string } | null>(null);
   const dragActionRef = useRef<DragAction | null>(null);
@@ -187,8 +190,14 @@ export function EventBoard({
     () => buildTimeSlots(startTime, endTime, slotDuration),
     [startTime, endTime, slotDuration],
   );
-  const pages = Math.ceil(dates.length / 7);
-  const visibleDates = dates.slice(page * 7, page * 7 + 7);
+  const timeColWidth = narrowGrid ? 44 : 56;
+  const rowHeight = narrowGrid ? 44 : 32;
+  const headerRowHeight = narrowGrid ? 48 : 40;
+  const pages = Math.max(1, Math.ceil(dates.length / daysPerPage));
+  const visibleDates = dates.slice(
+    page * daysPerPage,
+    page * daysPerPage + daysPerPage,
+  );
 
   const calendarOverlayPlacements = useMemo(() => {
     if (calendarEvents.length === 0) return [];
@@ -305,6 +314,30 @@ export function EventBoard({
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
   }, []);
+
+  // Fit the number of visible day columns to the available width so the grid
+  // never needs horizontal scrolling on small screens.
+  useEffect(() => {
+    const el = gridScrollRef.current;
+    if (!el) return;
+    const MIN_COL = 64;
+    const compute = () => {
+      const width = el.clientWidth;
+      if (width <= 0) return;
+      const tcw = window.matchMedia("(max-width: 640px)").matches ? 44 : 56;
+      const fit = Math.floor((width - tcw) / MIN_COL);
+      setDaysPerPage(Math.max(1, Math.min(fit, 7, dates.length)));
+    };
+    compute();
+    const ro = new ResizeObserver(compute);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [dates.length]);
+
+  // Keep the current page in range when the days-per-page count changes.
+  useEffect(() => {
+    setPage((p) => Math.min(p, pages - 1));
+  }, [pages]);
 
   const commitPaintDrag = useCallback(() => {
     if (!isDraggingRef.current) return;
@@ -549,6 +582,30 @@ export function EventBoard({
     applyPaintRange(date, time);
   }
 
+  function handleGridTouchStart(e: React.TouchEvent) {
+    if (e.touches.length !== 1) {
+      touchStartRef.current = null;
+      return;
+    }
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  }
+
+  function handleGridTouchEnd(e: React.TouchEvent) {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    // Don't page while painting; only react to a clearly horizontal swipe.
+    if (!start || isDraggingRef.current) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0) setPage((p) => Math.min(pages - 1, p + 1));
+      else setPage((p) => Math.max(0, p - 1));
+    }
+  }
+
   function addAvailability() {
     if (!canParticipate || readOnly || saved) return;
     const next: Record<string, SlotStatus> = { ...selected };
@@ -692,6 +749,54 @@ export function EventBoard({
     window.history.replaceState({}, "", nextUrl);
   }, [signedInUserId, syncGoogleCalendar]);
 
+  const renderModeToggle = () => (
+    <div
+      className="flex w-full flex-col gap-2"
+      role="group"
+      aria-label="Fyllmodus"
+    >
+      <span className="text-xs font-medium text-muted-foreground">Modus</span>
+      <div className="flex w-full rounded-lg border border-border bg-muted/60 p-0.5">
+        <button
+          type="button"
+          onClick={() => setFillMode("AVAILABLE")}
+          disabled={!canParticipate || readOnly || !isEditing}
+          aria-pressed={fillMode === "AVAILABLE"}
+          className={`flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-2 text-center text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+            fillMode === "AVAILABLE"
+              ? "bg-green-700 text-white hover:bg-green-800"
+              : "bg-transparent text-muted-foreground hover:bg-muted/80 hover:text-card-foreground"
+          }`}
+        >
+          Tilgjengelig
+        </button>
+        <button
+          type="button"
+          onClick={() => setFillMode("IF_NEEDED")}
+          disabled={!canParticipate || readOnly || !isEditing}
+          aria-pressed={fillMode === "IF_NEEDED"}
+          className={`relative flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-2 text-center text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+            fillMode === "IF_NEEDED"
+              ? "bg-yellow-400 text-yellow-950 hover:bg-yellow-500"
+              : "bg-transparent text-muted-foreground hover:bg-muted/80 hover:text-card-foreground"
+          }`}
+        >
+          {fillMode === "IF_NEEDED" ? (
+            <span
+              className="pointer-events-none absolute inset-0 rounded-md opacity-40"
+              style={{
+                backgroundImage:
+                  "repeating-linear-gradient(135deg, rgba(234,179,8,0.55), rgba(234,179,8,0.55) 4px, transparent 4px, transparent 8px)",
+              }}
+              aria-hidden
+            />
+          ) : null}
+          <span className="relative z-1">Om nødvendig</span>
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       {!canParticipate ? (
@@ -738,7 +843,7 @@ export function EventBoard({
             {saved ? "Lagret." : "Ikke lagret ennå."}
           </p>
           {isEditing ? (
-            <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
+            <div className="hidden w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto lg:flex">
               <button
                 type="button"
                 onClick={cancelAvailabilityEdit}
@@ -792,7 +897,8 @@ export function EventBoard({
               ← Forrige
             </button>
             <p className="text-xs text-muted-foreground">
-              Dager {page * 7 + 1}–{Math.min(page * 7 + 7, dates.length)} av{" "}
+              Dager {page * daysPerPage + 1}–
+              {Math.min(page * daysPerPage + daysPerPage, dates.length)} av{" "}
               {dates.length}
             </p>
             <button
@@ -806,17 +912,26 @@ export function EventBoard({
           </div>
         )}
 
+        {isEditing ? (
+          <div className="mb-3 lg:hidden">{renderModeToggle()}</div>
+        ) : null}
+
         <div
           className="flex flex-col gap-3 lg:flex-row lg:items-stretch"
           onMouseLeave={() => setHoveredParticipantId(null)}
         >
-          <div className="min-w-0 flex-1 overflow-x-auto">
+          <div
+            ref={gridScrollRef}
+            className="min-w-0 flex-1 overflow-x-auto"
+            onTouchStart={handleGridTouchStart}
+            onTouchEnd={handleGridTouchEnd}
+          >
             <div
               className="relative grid min-w-full select-none gap-0 text-sm"
               style={{
-                touchAction: "manipulation",
-                gridTemplateColumns: `56px repeat(${visibleDates.length}, minmax(${narrowGrid ? 72 : 80}px, 1fr))`,
-                gridTemplateRows: `40px repeat(${slots.length}, 32px)`,
+                touchAction: isEditing ? "none" : "pan-y",
+                gridTemplateColumns: `${timeColWidth}px repeat(${visibleDates.length}, minmax(0, 1fr))`,
+                gridTemplateRows: `${headerRowHeight}px repeat(${slots.length}, ${rowHeight}px)`,
               }}
             >
               <div className="border border-border bg-muted p-1 text-xs font-medium text-muted-foreground">
@@ -844,7 +959,10 @@ export function EventBoard({
                 const isHour = minStr === "00";
                 return (
                   <Fragment key={time}>
-                    <div className="flex items-start border-b border-r border-border bg-muted px-1.5 py-0.5 text-xs leading-none text-muted-foreground">
+                    <div
+                      className="flex items-start border-b border-r border-border bg-muted px-1.5 py-0.5 text-xs leading-none text-muted-foreground"
+                      style={{ touchAction: "pan-y" }}
+                    >
                       {isHour ? hourStr : ""}
                     </div>
                     {visibleDates.map((date, dateIndex) => {
@@ -969,53 +1087,7 @@ export function EventBoard({
           </div>
 
           <div className="flex w-full shrink-0 flex-col gap-3 border border-border bg-muted/40 p-3 lg:w-52">
-            <div
-              className="flex w-full flex-col gap-2"
-              role="group"
-              aria-label="Fyllmodus"
-            >
-              <span className="text-xs font-medium text-muted-foreground">
-                Modus
-              </span>
-              <div className="flex w-full rounded-lg border border-border bg-muted/60 p-0.5">
-                <button
-                  type="button"
-                  onClick={() => setFillMode("AVAILABLE")}
-                  disabled={!canParticipate || readOnly || !isEditing}
-                  aria-pressed={fillMode === "AVAILABLE"}
-                  className={`flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-2 text-center text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                    fillMode === "AVAILABLE"
-                      ? "bg-green-700 text-white hover:bg-green-800"
-                      : "bg-transparent text-muted-foreground hover:bg-muted/80 hover:text-card-foreground"
-                  }`}
-                >
-                  Tilgjengelig
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFillMode("IF_NEEDED")}
-                  disabled={!canParticipate || readOnly || !isEditing}
-                  aria-pressed={fillMode === "IF_NEEDED"}
-                  className={`relative flex min-w-0 flex-1 items-center justify-center rounded-md px-2 py-2 text-center text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                    fillMode === "IF_NEEDED"
-                      ? "bg-yellow-400 text-yellow-950 hover:bg-yellow-500"
-                      : "bg-transparent text-muted-foreground hover:bg-muted/80 hover:text-card-foreground"
-                  }`}
-                >
-                  {fillMode === "IF_NEEDED" ? (
-                    <span
-                      className="pointer-events-none absolute inset-0 rounded-md opacity-40"
-                      style={{
-                        backgroundImage:
-                          "repeating-linear-gradient(135deg, rgba(234,179,8,0.55), rgba(234,179,8,0.55) 4px, transparent 4px, transparent 8px)",
-                      }}
-                      aria-hidden
-                    />
-                  ) : null}
-                  <span className="relative z-1">Om nødvendig</span>
-                </button>
-              </div>
-            </div>
+            <div className="hidden lg:block">{renderModeToggle()}</div>
 
             <div
               className="min-w-0 border-t border-border pt-3"
@@ -1050,6 +1122,27 @@ export function EventBoard({
             </div>
           </div>
         </div>
+
+        {isEditing ? (
+          <div className="sticky bottom-0 z-30 -mx-4 mt-3 flex gap-2 border-t border-border bg-card/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:hidden">
+            <button
+              type="button"
+              onClick={cancelAvailabilityEdit}
+              disabled={readOnly || !canParticipate}
+              className="flex-1 rounded-md border border-border bg-card px-3 py-2.5 text-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Avbryt
+            </button>
+            <button
+              type="button"
+              onClick={() => void submitAvailability()}
+              disabled={readOnly || !canParticipate || !hasUnsavedChanges}
+              className="flex-1 rounded-md bg-primary px-3 py-2.5 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Lagre
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

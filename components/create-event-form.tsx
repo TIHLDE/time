@@ -139,7 +139,7 @@ export function CreateEventForm() {
           onChange={(e) => setTitle(e.target.value)}
           onBlur={() => setTitleTouched(true)}
           placeholder="Gi arrangementet et navn..."
-          className={`w-full rounded-md border bg-card px-3 py-2.5 text-sm focus:outline-none ${(titleTouched || showErrors) && titleError ? "border-red-400 focus:border-red-400" : "border-border focus:ring-2 focus:ring-primary/25"}`}
+          className={`w-full rounded-md border bg-card px-3 py-2.5 text-base sm:text-sm focus:outline-none ${(titleTouched || showErrors) && titleError ? "border-red-400 focus:border-red-400" : "border-border focus:ring-2 focus:ring-primary/25"}`}
         />
         {(titleTouched || showErrors) && titleError && (
           <p className="text-xs text-red-500">Navn på arrangement er påkrevd</p>
@@ -156,7 +156,7 @@ export function CreateEventForm() {
             name="startTime"
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
-            className="rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
+            className="rounded-md border border-border bg-card px-3 py-2 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
           >
             {TIME_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -169,7 +169,7 @@ export function CreateEventForm() {
             name="endTime"
             value={endTime}
             onChange={(e) => setEndTime(e.target.value)}
-            className="rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
+            className="rounded-md border border-border bg-card px-3 py-2 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary/25"
           >
             {TIME_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -195,7 +195,7 @@ export function CreateEventForm() {
             <button
               type="button"
               onClick={() => setViewMonth((m) => subMonths(m, 1))}
-              className="flex h-7 w-7 items-center justify-center rounded text-lg text-muted-foreground hover:bg-muted"
+              className="flex h-9 w-9 items-center justify-center rounded text-lg text-muted-foreground hover:bg-muted sm:h-7 sm:w-7"
             >
               ‹
             </button>
@@ -205,7 +205,7 @@ export function CreateEventForm() {
             <button
               type="button"
               onClick={() => setViewMonth((m) => addMonths(m, 1))}
-              className="flex h-7 w-7 items-center justify-center rounded text-lg text-muted-foreground hover:bg-muted"
+              className="flex h-9 w-9 items-center justify-center rounded text-lg text-muted-foreground hover:bg-muted sm:h-7 sm:w-7"
             >
               ›
             </button>
@@ -221,7 +221,7 @@ export function CreateEventForm() {
           </div>
 
           {/* Day cells */}
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-1" style={{ touchAction: "none" }}>
             {Array.from({ length: firstDayOffset }, (_, i) => (
               <div key={`empty-${i}`} />
             ))}
@@ -239,7 +239,7 @@ export function CreateEventForm() {
                   onPointerEnter={() => handleDayPointerEnter(d)}
                   disabled={isPast}
                   className={[
-                    "flex h-9 w-full items-center justify-center rounded text-sm transition-colors",
+                    "flex h-11 w-full items-center justify-center rounded text-sm transition-colors sm:h-9",
                     isPast
                       ? "cursor-not-allowed text-muted-foreground/50"
                       : "cursor-pointer",
