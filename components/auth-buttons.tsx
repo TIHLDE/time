@@ -2,8 +2,17 @@ import { auth, signIn, signOut } from "@/auth";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
 
-export async function AuthButtons() {
+// Only allow same-site relative paths to prevent open-redirect attacks.
+function sanitizeCallbackUrl(raw?: string): string {
+  if (typeof raw === "string" && raw.startsWith("/") && !raw.startsWith("//")) {
+    return raw;
+  }
+  return "/";
+}
+
+export async function AuthButtons({ callbackUrl }: { callbackUrl?: string }) {
   const session = await auth();
+  const safeCallbackUrl = sanitizeCallbackUrl(callbackUrl);
 
   if (session?.user) {
     return (
@@ -47,10 +56,18 @@ export async function AuthButtons() {
           const user_id = String(formData.get("user_id") ?? "");
           const password = String(formData.get("password") ?? "");
           try {
-            await signIn("credentials", { user_id, password, redirectTo: "/" });
+            await signIn("credentials", {
+              user_id,
+              password,
+              redirectTo: safeCallbackUrl,
+            });
           } catch (error) {
             if (error instanceof AuthError && error.type === "CredentialsSignin") {
-              redirect("/?authError=credentials");
+              const params = new URLSearchParams({ authError: "credentials" });
+              if (safeCallbackUrl !== "/") {
+                params.set("callbackUrl", safeCallbackUrl);
+              }
+              redirect(`/?${params.toString()}`);
             }
             throw error;
           }

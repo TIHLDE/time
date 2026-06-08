@@ -27,6 +27,9 @@ export default async function Home({ searchParams }: HomeProps) {
   const authError = resolvedSearchParams?.authError;
   const hasCredentialsError =
     typeof authError === "string" && authError === "credentials";
+  const callbackUrlParam = resolvedSearchParams?.callbackUrl;
+  const callbackUrl =
+    typeof callbackUrlParam === "string" ? callbackUrlParam : undefined;
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-10 sm:px-8 sm:py-14">
       <header className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -100,7 +103,7 @@ export default async function Home({ searchParams }: HomeProps) {
             Ugyldig TIHLDE-brukernavn eller passord.
           </p>
         ) : null}
-        {!session?.user ? <AuthButtons /> : null}
+        {!session?.user ? <AuthButtons callbackUrl={callbackUrl} /> : null}
       </div>
       {!session?.user ? (
         <p className="mt-4 text-center text-sm text-muted-foreground">

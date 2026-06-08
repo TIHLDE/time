@@ -806,7 +806,7 @@ export function EventBoard({
             Du må være innlogget for å legge inn tider og lagre.
           </p>
           <Link
-            href="/"
+            href={`/?callbackUrl=${encodeURIComponent(`/event/${slug}`)}`}
             className="mt-2 inline-block text-sm font-medium text-primary underline"
           >
             Gå til innlogging
