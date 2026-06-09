@@ -34,5 +34,11 @@
     "eslint-config-next": "^15.5.19",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "pnpm": {
+    "overrides": {
+      "effect": "^3.20.0",
+      "postcss": "^8.5.10"
+    }
   }
 }
