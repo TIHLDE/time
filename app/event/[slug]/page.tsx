@@ -6,13 +6,14 @@ import { normalizeDates } from "@/lib/time";
 import { EventBoard } from "@/components/event-board";
 
 type PageProps = {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 };
 
 export default async function EventPage({ params }: PageProps) {
+  const { slug } = await params;
   const session = await auth();
   const event = await prisma.event.findUnique({
-    where: { slug: params.slug },
+    where: { slug },
     include: {
       participants: {
         include: {
