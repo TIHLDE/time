@@ -1134,7 +1134,7 @@ export function EventBoard({
                   {participantsWithAvailability.map((p) => (
                     <li
                       key={p.id}
-                      className="min-w-0 cursor-pointer wrap-break-word text-sm text-card-foreground"
+                      className="min-w-0 cursor-pointer wrap-break-word text-sm text-card-foreground transition-opacity hover:opacity-60"
                       onMouseEnter={() => setHoveredParticipantId(p.id)}
                       onPointerDown={(e) => {
                         if (e.pointerType !== "touch") return;
