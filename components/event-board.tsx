@@ -186,6 +186,7 @@ export function EventBoard({
   const othersHaveSlots = participants.some((p) => p.slots.length > 0);
   const showHeatmap =
     saved || (!canParticipate && othersHaveSlots);
+  const heatmapView = showHeatmap && !isEditing;
   const hasUnsavedChanges = !areSelectionsEqual(selected, persistedSelected);
   const slots = useMemo(
     () => buildTimeSlots(startTime, endTime, slotDuration),
@@ -483,13 +484,16 @@ export function EventBoard({
       return "bg-muted/80 hover:bg-muted";
     }
 
+    // In read/heatmap mode the aggregate gradient wins over the viewer's own
+    // selection — your slots still count toward the totals, they just aren't
+    // over-painted with a flat colour that hides what suits the most people.
+    if (heatmapView) return getHeatmapColor(key);
+
     if (mine === "AVAILABLE") return "bg-green-700 hover:bg-green-800";
     if (mine === "IF_NEEDED")
       return "bg-yellow-400 hover:bg-yellow-500 relative";
 
     if (isEditing) return "bg-red-300 hover:bg-red-200";
-
-    if (showHeatmap) return getHeatmapColor(key);
 
     return "bg-muted/80 hover:bg-muted";
   }
@@ -1081,7 +1085,7 @@ export function EventBoard({
                               aria-hidden
                             />
                           ) : null}
-                          {(mine === "IF_NEEDED" ||
+                          {((mine === "IF_NEEDED" && !heatmapView) ||
                             (hoverActive && hoveredStatus === "IF_NEEDED")) &&
                           !isPainted ? (
                             <span
