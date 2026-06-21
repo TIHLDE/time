@@ -13,13 +13,19 @@ export default async function Home({ searchParams }: HomeProps) {
   const session = await auth();
   const myEvents = session?.user?.id
     ? await prisma.event.findMany({
-        where: { createdById: session.user.id },
+        where: {
+          OR: [
+            { createdById: session.user.id },
+            { participants: { some: { userId: session.user.id } } },
+          ],
+        },
         orderBy: { createdAt: "desc" },
         select: {
           id: true,
           slug: true,
           title: true,
           createdAt: true,
+          createdById: true,
         },
       })
     : [];
@@ -84,13 +90,18 @@ export default async function Home({ searchParams }: HomeProps) {
                           {event.createdAt.toLocaleDateString("nb-NO")}
                         </p>
                       </Link>
-                      <DeleteEventButton slug={event.slug} title={event.title} />
+                      {event.createdById === session.user.id ? (
+                        <DeleteEventButton
+                          slug={event.slug}
+                          title={event.title}
+                        />
+                      ) : null}
                     </div>
                   ))}
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Du har ikke opprettet noen arrangementer ennå.
+                  Du er ikke med på noen arrangementer ennå.
                 </p>
               )}
             </section>
