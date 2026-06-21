@@ -157,6 +157,7 @@ export function EventBoard({
   >(null);
   const [narrowGrid, setNarrowGrid] = useState(false);
   const [daysPerPage, setDaysPerPage] = useState(7);
+  const [countIfNeeded, setCountIfNeeded] = useState(true);
 
   const displayName =
     signedInUserName?.trim() || loadedParticipantName?.trim() || "";
@@ -425,52 +426,36 @@ export function EventBoard({
     return map;
   }, [hoveredParticipantId, participants, participantId, selected]);
 
+  const slotCount = useCallback(
+    (key: string) => {
+      const list = peopleByCell[key] ?? [];
+      const available = list.filter((e) => e.status === "AVAILABLE").length;
+      const ifNeeded = list.filter((e) => e.status === "IF_NEEDED").length;
+      return available + (countIfNeeded ? ifNeeded : 0);
+    },
+    [peopleByCell, countIfNeeded],
+  );
+
   const heatmapMaxCount = useMemo(() => {
     let max = 0;
     for (const date of visibleDates) {
       for (const time of slots) {
-        const key = `${date}|${time}`;
-        const list = peopleByCell[key] ?? [];
-        const availableCount = list.filter((e) => e.status === "AVAILABLE").length;
-        const ifNeededCount = list.filter((e) => e.status === "IF_NEEDED").length;
-        const totalCount = availableCount + ifNeededCount;
-        max = Math.max(max, totalCount);
+        max = Math.max(max, slotCount(`${date}|${time}`));
       }
     }
     return max;
-  }, [visibleDates, slots, peopleByCell]);
+  }, [visibleDates, slots, slotCount]);
 
   function getHeatmapColor(key: string): string {
-    const list = peopleByCell[key] ?? [];
-    const availableCount = list.filter((e) => e.status === "AVAILABLE").length;
-    const ifNeededCount = list.filter((e) => e.status === "IF_NEEDED").length;
-
-    const green = (count: number) => {
-      if (count === 1) return "bg-green-300 hover:bg-green-400";
-      if (count === 2) return "bg-green-400 hover:bg-green-500";
-      if (count === 3) return "bg-green-500 hover:bg-green-600";
-      return "bg-green-600 hover:bg-green-700";
-    };
-    const yellow = (count: number) => {
-      if (count === 1) return "bg-yellow-200 hover:bg-yellow-300";
-      if (count === 2) return "bg-yellow-300 hover:bg-yellow-400";
-      if (count === 3) return "bg-yellow-400 hover:bg-yellow-500";
-      return "bg-yellow-500 hover:bg-yellow-600";
-    };
-
-    const totalCount = availableCount + ifNeededCount;
-    if (totalCount === 0) return "bg-muted/80 hover:bg-muted";
-
-    if (heatmapMaxCount > 0 && totalCount === heatmapMaxCount) {
-      return green(totalCount);
-    }
-
-    if (availableCount === 0 && ifNeededCount > 0) return yellow(ifNeededCount);
-    if (ifNeededCount === 0 && availableCount > 0) return green(availableCount);
-
-    const dominantIfNeeded = ifNeededCount > availableCount;
-    const dominantCount = Math.max(availableCount, ifNeededCount);
-    return dominantIfNeeded ? yellow(dominantCount) : green(dominantCount);
+    const count = slotCount(key);
+    if (count === 0) return "bg-muted/80 hover:bg-muted";
+    const ratio = heatmapMaxCount > 0 ? count / heatmapMaxCount : 0;
+    if (ratio >= 1) return "bg-green-800 hover:bg-green-900";
+    if (ratio >= 0.8) return "bg-green-700 hover:bg-green-800";
+    if (ratio >= 0.6) return "bg-green-600 hover:bg-green-700";
+    if (ratio >= 0.4) return "bg-green-500 hover:bg-green-600";
+    if (ratio >= 0.2) return "bg-green-400 hover:bg-green-500";
+    return "bg-green-300 hover:bg-green-400";
   }
 
   function previewClassForPaint(): string {
@@ -797,6 +782,49 @@ export function EventBoard({
     </div>
   );
 
+  const renderHeatmapToggle = () => (
+    <div
+      className="flex w-full flex-col gap-2"
+      role="group"
+      aria-label="Visning av tilgjengelighet"
+    >
+      <span className="text-xs font-medium text-muted-foreground">Visning</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={countIfNeeded}
+        onClick={() => setCountIfNeeded((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-muted/60 px-3 py-2 text-left text-xs font-medium text-card-foreground transition-colors hover:bg-muted/80"
+      >
+        <span className="min-w-0">Tell med «om nødvendig»</span>
+        <span
+          className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+            countIfNeeded ? "bg-green-700" : "bg-muted-foreground/40"
+          }`}
+          aria-hidden
+        >
+          <span
+            className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+              countIfNeeded ? "translate-x-4" : "translate-x-0.5"
+            }`}
+          />
+        </span>
+      </button>
+      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+        <span>Færre</span>
+        <span className="flex h-2 flex-1 overflow-hidden rounded-full">
+          <span className="flex-1 bg-green-300" />
+          <span className="flex-1 bg-green-400" />
+          <span className="flex-1 bg-green-500" />
+          <span className="flex-1 bg-green-600" />
+          <span className="flex-1 bg-green-700" />
+          <span className="flex-1 bg-green-800" />
+        </span>
+        <span>Flest</span>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       {!canParticipate ? (
@@ -914,6 +942,8 @@ export function EventBoard({
 
         {isEditing ? (
           <div className="mb-3 lg:hidden">{renderModeToggle()}</div>
+        ) : showHeatmap ? (
+          <div className="mb-3 lg:hidden">{renderHeatmapToggle()}</div>
         ) : null}
 
         <div
@@ -1088,6 +1118,9 @@ export function EventBoard({
 
           <div className="flex w-full shrink-0 flex-col gap-3 border border-border bg-muted/40 p-3 lg:w-52">
             <div className="hidden lg:block">{renderModeToggle()}</div>
+            {!isEditing && showHeatmap ? (
+              <div className="hidden lg:block">{renderHeatmapToggle()}</div>
+            ) : null}
 
             <div
               className="min-w-0 border-t border-border pt-3"
