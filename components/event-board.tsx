@@ -155,6 +155,7 @@ export function EventBoard({
   const [hoveredParticipantId, setHoveredParticipantId] = useState<
     string | null
   >(null);
+  const [hoveredSlotKey, setHoveredSlotKey] = useState<string | null>(null);
   const [narrowGrid, setNarrowGrid] = useState(false);
   const [daysPerPage, setDaysPerPage] = useState(7);
   const [countIfNeeded, setCountIfNeeded] = useState(true);
@@ -427,6 +428,22 @@ export function EventBoard({
     return map;
   }, [hoveredParticipantId, participants, participantId, selected]);
 
+  const availableAtHoveredSlot = useMemo(() => {
+    if (!hoveredSlotKey) return null;
+    const ids = new Set<string>();
+    for (const p of participants) {
+      if (p.slots.some((s) => `${s.date}|${s.time}` === hoveredSlotKey)) {
+        ids.add(p.id);
+      }
+    }
+    // Reflect the current user's own (possibly unsaved) selection.
+    if (participantId) {
+      if (selected[hoveredSlotKey]) ids.add(participantId);
+      else ids.delete(participantId);
+    }
+    return ids;
+  }, [hoveredSlotKey, participants, participantId, selected]);
+
   const slotCount = useCallback(
     (key: string) => {
       const list = peopleByCell[key] ?? [];
@@ -569,6 +586,10 @@ export function EventBoard({
 
   function handleCellMouseEnter(date: string, time: string) {
     applyPaintRange(date, time);
+    if (!isEditingRef.current) {
+      setHoveredSlotKey(`${date}|${time}`);
+      setHoveredParticipantId(null);
+    }
   }
 
   function handleGridTouchStart(e: React.TouchEvent) {
@@ -952,7 +973,10 @@ export function EventBoard({
 
         <div
           className="flex flex-col gap-3 lg:flex-row lg:items-stretch"
-          onMouseLeave={() => setHoveredParticipantId(null)}
+          onMouseLeave={() => {
+            setHoveredParticipantId(null);
+            setHoveredSlotKey(null);
+          }}
         >
           <div
             ref={gridScrollRef}
@@ -1135,21 +1159,33 @@ export function EventBoard({
               </span>
               {participantsWithAvailability.length > 0 ? (
                 <ul className="mt-2 list-none space-y-1">
-                  {participantsWithAvailability.map((p) => (
-                    <li
-                      key={p.id}
-                      className="min-w-0 cursor-pointer wrap-break-word text-sm text-card-foreground transition-opacity hover:opacity-60"
-                      onMouseEnter={() => setHoveredParticipantId(p.id)}
-                      onPointerDown={(e) => {
-                        if (e.pointerType !== "touch") return;
-                        setHoveredParticipantId((id) =>
-                          id === p.id ? null : p.id,
-                        );
-                      }}
-                    >
-                      {p.name}
-                    </li>
-                  ))}
+                  {participantsWithAvailability.map((p) => {
+                    const unavailableAtHover = Boolean(
+                      availableAtHoveredSlot && !availableAtHoveredSlot.has(p.id),
+                    );
+                    return (
+                      <li
+                        key={p.id}
+                        className={`min-w-0 cursor-pointer wrap-break-word text-sm text-card-foreground transition-opacity ${
+                          unavailableAtHover
+                            ? "line-through opacity-40"
+                            : "hover:opacity-60"
+                        }`}
+                        onMouseEnter={() => {
+                          setHoveredParticipantId(p.id);
+                          setHoveredSlotKey(null);
+                        }}
+                        onPointerDown={(e) => {
+                          if (e.pointerType !== "touch") return;
+                          setHoveredParticipantId((id) =>
+                            id === p.id ? null : p.id,
+                          );
+                        }}
+                      >
+                        {p.name}
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : (
                 <p className="mt-2 text-sm text-muted-foreground">
